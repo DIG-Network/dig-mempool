@@ -64,14 +64,14 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 
 ## Phase 5: Block Candidate Selection
 
-- [ ] SEL-001 — `select_for_block()` entry point (active pool only)
-- [ ] SEL-002 — Pre-selection filtering (expired, future-timelocked)
-- [ ] SEL-003 — Strategy 1: fee-per-cost density sort
-- [ ] SEL-004 — Strategy 2: absolute fee whale sort
-- [ ] SEL-005 — Strategy 3: compact high-value sort
-- [ ] SEL-006 — Strategy 4: age-weighted anti-starvation sort
-- [ ] SEL-007 — Best-selection comparator (highest fees, lowest cost, fewest bundles)
-- [ ] SEL-008 — Final topological ordering (parents before children, FPC descending)
+- [x] SEL-001 — `select_for_block()` entry point (active pool only)
+- [x] SEL-002 — Pre-selection filtering (expired, future-timelocked)
+- [x] SEL-003 — Strategy 1: fee-per-cost density sort
+- [x] SEL-004 — Strategy 2: absolute fee whale sort
+- [x] SEL-005 — Strategy 3: compact high-value sort
+- [x] SEL-006 — Strategy 4: age-weighted anti-starvation sort
+- [x] SEL-007 — Best-selection comparator (highest fees, lowest cost, fewest bundles)
+- [x] SEL-008 — Final topological ordering (parents before children, FPC descending)
 
 ## Phase 6: Fee Estimation
 
