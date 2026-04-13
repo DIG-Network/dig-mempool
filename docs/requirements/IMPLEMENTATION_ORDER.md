@@ -10,7 +10,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 ## Phase 0: Foundation (API Types & Config)
 
 - [x] API-001 — Mempool constructor (`new`, `with_config`)
-- [ ] API-002 — MempoolItem struct with all fields (Arc-wrapped)
+- [x] API-002 — MempoolItem struct with all fields (Arc-wrapped)
 - [ ] API-003 — MempoolConfig with builder pattern and defaults
 - [ ] API-004 — MempoolError enum (Clone + PartialEq, 24 variants)
 - [ ] API-005 — SubmitResult enum (Success, Pending)

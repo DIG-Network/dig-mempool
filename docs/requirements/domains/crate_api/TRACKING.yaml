@@ -15,10 +15,11 @@ items:
   - id: API-002
     section: "Core Types"
     summary: "MempoolItem struct with all fields, stored as Arc"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/crate_api/specs/API-002.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_api_002
+    notes: "24+ fields, Arc-wrapped, virtual_cost w/ spend penalty, FPC scaled integer, CPFP package fields, SingletonLineageInfo, new_for_test() helper"
 
   - id: API-003
     section: "Core Types"

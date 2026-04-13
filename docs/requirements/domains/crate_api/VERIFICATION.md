@@ -3,7 +3,7 @@
 | ID | Status | Summary | Verification Approach |
 |----|--------|---------|----------------------|
 | [API-001](NORMATIVE.md#API-001) | ✅ | Mempool constructors | 7 tests: new/with_config compile, default config max_cost=8.25T, custom config applied, empty on construction, Send+Sync, independent instances. |
-| [API-002](NORMATIVE.md#API-002) | ❌ | MempoolItem struct | Unit test: all fields accessible, stored as Arc. |
+| [API-002](NORMATIVE.md#API-002) | ✅ | MempoolItem struct | 7 tests: all fields accessible, Arc wrapping, virtual_cost=cost+spends*penalty, FPC scaled integer, package=individual for root, SingletonLineageInfo, zero-fee edge case. |
 | [API-003](NORMATIVE.md#API-003) | ❌ | MempoolConfig builder | Unit test: builder pattern, default values correct. |
 | [API-004](NORMATIVE.md#API-004) | ❌ | MempoolError enum | Unit test: all variants constructible, Clone + PartialEq works. |
 | [API-005](NORMATIVE.md#API-005) | ❌ | SubmitResult enum | Unit test: Success and Pending variants constructible. |
