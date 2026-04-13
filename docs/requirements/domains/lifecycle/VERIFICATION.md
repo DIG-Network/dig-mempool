@@ -9,6 +9,6 @@
 | [LCY-005](NORMATIVE.md#LCY-005) | ✅ | MempoolEventHook trait | 10 tests: default noop, on_item_added, on_item_removed confirmed, on_block_selected, on_conflict_cached, on_pending_added, multiple hooks, cascade evict fires hook, send+sync, add_event_hook public. |
 | [LCY-006](NORMATIVE.md#LCY-006) | ✅ | RemovalReason enum | 10 tests: all variants, clone, partial_eq, debug, replacement_id field, parent_id field, confirmed reason, cascade_evicted parent_id correct, cleared reason, publicly exported. |
 | [LCY-007](NORMATIVE.md#LCY-007) | ❌ | snapshot()/restore() persistence | Integration test: round-trip snapshot, verify state equality. |
-| [LCY-008](NORMATIVE.md#LCY-008) | ❌ | evict_lowest_percent() | Unit test: eviction ordering, expiry protection, cascade. |
+| [LCY-008](NORMATIVE.md#LCY-008) | ✅ | evict_lowest_percent() | 8 tests: percent_0_noop, lowest_score_first, percent_100_evicts_all, expiry_protected_skipped, cascade_evicts_dependents, capacity_eviction_hook, cascade_hook_with_parent_id, is_public. |
 
 **Status legend:** ✅ verified · ⚠️ partial · ❌ gap
