@@ -17,6 +17,8 @@
 
 use std::collections::VecDeque;
 
+use serde::{Deserialize, Serialize};
+
 use crate::config::{FPC_SCALE, SPEND_PENALTY_COST};
 use crate::submit::ConfirmedBundleInfo;
 
@@ -69,18 +71,79 @@ struct FeeBucket {
 /// window is full.
 ///
 /// See: [FEE-002](docs/requirements/domains/fee_estimation/specs/FEE-002.md)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockFeeData {
     /// Block height this data was recorded for.
     pub height: u64,
     /// Minimum FPC (scaled) among included transactions (0 if none).
+    #[serde(with = "serde_u128_str")]
     pub min_fpc_included: u128,
     /// Maximum FPC (scaled) among included transactions (0 if none).
+    #[serde(with = "serde_u128_str")]
     pub max_fpc_included: u128,
     /// Median FPC (scaled) among included transactions (0 if none).
+    #[serde(with = "serde_u128_str")]
     pub median_fpc: u128,
     /// Number of confirmed transactions recorded in this block.
     pub num_transactions: usize,
+}
+
+// ── serde helper for u128 as decimal string ──
+//
+// serde_json does not reliably round-trip u128 as a JSON number across all
+// implementations. Encoding as a decimal string is universally safe.
+mod serde_u128_str {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(val: &u128, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&val.to_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u128, D::Error> {
+        let s = String::deserialize(d)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+// ── FEE-005: FeeEstimatorState serialization ──
+
+/// Serializable snapshot of a single fee-rate bucket's statistics.
+///
+/// Mirrors `FeeBucket` with all fields public and serde-derived.
+/// Stored as `FeeEstimatorState::buckets` for persistence.
+///
+/// See: [FEE-005](docs/requirements/domains/fee_estimation/specs/FEE-005.md)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializedBucket {
+    #[serde(with = "serde_u128_str")]
+    pub fee_rate_lower: u128,
+    #[serde(with = "serde_u128_str")]
+    pub fee_rate_upper: u128,
+    pub confirmed_in_1: f64,
+    pub confirmed_in_2: f64,
+    pub confirmed_in_5: f64,
+    pub confirmed_in_10: f64,
+    pub total_observed: f64,
+}
+
+/// Serializable snapshot of the complete `FeeTracker` state.
+///
+/// Enables the fee estimator to survive mempool restarts without losing
+/// historical data. Include in `MempoolSnapshot::fee_estimator_state`.
+///
+/// Restoration contract: `FeeTracker::from_state(state, window)` MUST produce
+/// a tracker that returns identical `estimate_fee_rate()` results as the
+/// original at the time of snapshot.
+///
+/// See: [FEE-005](docs/requirements/domains/fee_estimation/specs/FEE-005.md)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeEstimatorState {
+    /// Serialized bucket statistics (all boundaries and counters).
+    pub buckets: Vec<SerializedBucket>,
+    /// Per-block fee summaries (up to `window` entries).
+    pub block_history: Vec<BlockFeeData>,
+    /// Height of the last recorded block.
+    pub current_height: u64,
 }
 
 // ── FeeTracker ──
@@ -223,6 +286,65 @@ impl FeeTracker {
 
     pub(crate) fn bucket_confirmed_in_1(&self) -> Vec<f64> {
         self.buckets.iter().map(|b| b.confirmed_in_1).collect()
+    }
+
+    // ── FEE-005: State serialization / restoration ──
+
+    /// Snapshot the tracker's current state for persistence.
+    ///
+    /// Returns a `FeeEstimatorState` that can be round-tripped via serde and
+    /// used to reconstruct an equivalent tracker via `from_state()`.
+    ///
+    /// See: [FEE-005](docs/requirements/domains/fee_estimation/specs/FEE-005.md)
+    pub(crate) fn to_state(&self) -> FeeEstimatorState {
+        FeeEstimatorState {
+            buckets: self
+                .buckets
+                .iter()
+                .map(|b| SerializedBucket {
+                    fee_rate_lower: b.fee_rate_lower,
+                    fee_rate_upper: b.fee_rate_upper,
+                    confirmed_in_1: b.confirmed_in_1,
+                    confirmed_in_2: b.confirmed_in_2,
+                    confirmed_in_5: b.confirmed_in_5,
+                    confirmed_in_10: b.confirmed_in_10,
+                    total_observed: b.total_observed,
+                })
+                .collect(),
+            block_history: self.block_history.iter().cloned().collect(),
+            current_height: self.current_height,
+        }
+    }
+
+    /// Reconstruct a `FeeTracker` from a persisted `FeeEstimatorState`.
+    ///
+    /// The reconstructed tracker will produce identical `estimate_fee_rate()`
+    /// results as the original at the time of the snapshot.
+    ///
+    /// If the snapshot has a different bucket count than `num_buckets`, the
+    /// state is loaded as-is (bucket count from the snapshot takes precedence).
+    ///
+    /// See: [FEE-005](docs/requirements/domains/fee_estimation/specs/FEE-005.md)
+    pub(crate) fn from_state(state: FeeEstimatorState, window: usize) -> Self {
+        let buckets: Vec<FeeBucket> = state
+            .buckets
+            .into_iter()
+            .map(|b| FeeBucket {
+                fee_rate_lower: b.fee_rate_lower,
+                fee_rate_upper: b.fee_rate_upper,
+                confirmed_in_1: b.confirmed_in_1,
+                confirmed_in_2: b.confirmed_in_2,
+                confirmed_in_5: b.confirmed_in_5,
+                confirmed_in_10: b.confirmed_in_10,
+                total_observed: b.total_observed,
+            })
+            .collect();
+        Self {
+            window,
+            buckets,
+            block_history: state.block_history.into_iter().collect(),
+            current_height: state.current_height,
+        }
     }
 
     // ── Internal helpers ──

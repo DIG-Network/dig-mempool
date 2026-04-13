@@ -42,7 +42,8 @@ items:
   - id: FEE-005
     section: "Persistence"
     summary: "FeeEstimatorState serde serialization"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-005.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_fee_005.rs
+    notes: "FeeEstimatorState + SerializedBucket + BlockFeeData all derive Serialize+Deserialize. serde_u128_str helper serializes u128 fields as decimal strings for JSON compat. snapshot_fee_state() -> FeeEstimatorState, restore_fee_state(state) round-trips cleanly. 6 tests."
