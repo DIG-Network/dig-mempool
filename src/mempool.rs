@@ -348,6 +348,76 @@ impl ActivePool {
     }
 }
 
+// ── Pending Pool ──────────────────────────────────────────────────────────
+
+/// Pending pool: validated but future-timelocked items awaiting promotion.
+///
+/// Items land here when `assert_height > current_height` or
+/// `assert_seconds > current_timestamp`. They are returned for re-submission
+/// when `drain_pending()` is called (typically from `on_new_block()` — LCY-001).
+///
+/// See: [POL-004](docs/requirements/domains/pools/specs/POL-004.md)
+struct PendingPool {
+    /// Bundle ID → item.
+    pending: HashMap<Bytes32, Arc<MempoolItem>>,
+    /// Spent coin ID → bundle ID. Populated for pending-vs-pending conflict
+    /// detection (POL-005). Cleaned up on removal.
+    pending_coin_index: HashMap<Bytes32, Bytes32>,
+    /// Sum of all pending items' `virtual_cost`.
+    pending_cost: u64,
+}
+
+impl PendingPool {
+    fn new() -> Self {
+        Self {
+            pending: HashMap::new(),
+            pending_coin_index: HashMap::new(),
+            pending_cost: 0,
+        }
+    }
+
+    fn insert(&mut self, item: Arc<MempoolItem>) {
+        let id = item.spend_bundle_id;
+        for &coin_id in &item.removals {
+            self.pending_coin_index.insert(coin_id, id);
+        }
+        self.pending_cost = self.pending_cost.saturating_add(item.virtual_cost);
+        self.pending.insert(id, item);
+    }
+
+    fn remove(&mut self, bundle_id: &Bytes32) -> Option<Arc<MempoolItem>> {
+        let item = self.pending.remove(bundle_id)?;
+        for &coin_id in &item.removals {
+            self.pending_coin_index.remove(&coin_id);
+        }
+        self.pending_cost = self.pending_cost.saturating_sub(item.virtual_cost);
+        Some(item)
+    }
+
+    /// Drain all items whose timelocks are satisfied at `height` / `timestamp`.
+    ///
+    /// Returns the spend bundles for re-submission. Each bundle must be
+    /// re-validated with fresh coin records and current chain state.
+    fn drain(&mut self, height: u64, timestamp: u64) -> Vec<SpendBundle> {
+        let to_promote: Vec<Bytes32> = self
+            .pending
+            .values()
+            .filter(|item| {
+                let height_ok = item.assert_height.map_or(true, |h| h <= height);
+                let seconds_ok = item.assert_seconds.map_or(true, |s| s <= timestamp);
+                height_ok && seconds_ok
+            })
+            .map(|item| item.spend_bundle_id)
+            .collect();
+
+        to_promote
+            .iter()
+            .filter_map(|id| self.remove(id))
+            .map(|item| item.spend_bundle.clone())
+            .collect()
+    }
+}
+
 // CoinRecord re-exported for get_mempool_coin_record return type.
 use dig_clvm::CoinRecord;
 
@@ -424,6 +494,14 @@ pub struct Mempool {
     ///
     /// See: [ADM-003](docs/requirements/domains/admission/specs/ADM-003.md)
     seen_cache: RwLock<SeenCache>,
+
+    /// Pending pool: timelocked items awaiting height/timestamp advancement.
+    ///
+    /// Protected by its own `RwLock` to avoid contention with the active pool
+    /// lock. Pending items do NOT participate in eviction or block selection.
+    ///
+    /// See: [POL-004](docs/requirements/domains/pools/specs/POL-004.md)
+    pending: RwLock<PendingPool>,
 }
 
 impl Mempool {
@@ -466,6 +544,7 @@ impl Mempool {
             pool: RwLock::new(ActivePool::new()),
             bls_cache: Mutex::new(BlsCache::default()),
             seen_cache: RwLock::new(SeenCache::new(seen_cache_size)),
+            pending: RwLock::new(PendingPool::new()),
         }
     }
 
@@ -532,9 +611,15 @@ impl Mempool {
             .filter(|i| i.singleton_lineage.is_some())
             .count();
 
+        let (pending_count, pending_cost) = {
+            let pending = self.pending.read().unwrap();
+            (pending.pending.len(), pending.pending_cost)
+        };
+
         MempoolStats {
             active_count,
-            pending_count: 0,  // TODO: POL-004
+            pending_count,
+            pending_cost,
             conflict_count: 0, // TODO: POL-006
             total_cost,
             total_fees,
@@ -833,12 +918,6 @@ impl Mempool {
         let is_pending = matches!(assert_height, Some(ah) if ah > current_height)
             || matches!(assert_seconds, Some(as_) if as_ > current_timestamp);
 
-        if is_pending {
-            return Ok(SubmitResult::Pending {
-                assert_height: assert_height.unwrap_or(0),
-            });
-        }
-
         // ── ADM-007: Dedup/FF flag extraction ──
         //
         // Read ELIGIBLE_FOR_DEDUP (0x1) and ELIGIBLE_FOR_FF (0x4) flags from
@@ -866,18 +945,14 @@ impl Mempool {
             .any(|s| s.flags & 0x4 != 0);
         // TODO: If _any_ff_eligible, extract singleton lineage info (needs chia-sdk-driver)
         // TODO(CFR-001): Conflict detection against coin_index
-        // TODO(POL-002): Capacity management / eviction
 
-        // ── Phase 2: Build MempoolItem and insert into active pool ──
+        // ── Build MempoolItem ──
         //
-        // All validation passed and the item is not pending. Construct the
-        // immutable MempoolItem from the validated data, wrap in Arc, and
-        // insert into the active pool under a write lock.
+        // Construct the immutable MempoolItem from the validated data.
+        // Built before routing so it can go to either the pending or active pool.
         //
         // `removals` = coin IDs spent by this bundle (from SpendResult.removals).
-        //   These are registered in coin_index for O(1) conflict detection (CFR-001).
         // `additions` = coins created by this bundle (from SpendResult.additions).
-        //   These are registered in mempool_coins for O(1) CPFP resolution (CPF-001).
         //
         // Chia L1 equivalent: Mempool.add_to_pool() at
         // [mempool.py:273](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L273)
@@ -907,6 +982,7 @@ impl Mempool {
             conditions,
             num_spends,
             assert_height,
+            assert_seconds,
             assert_before_height,
             assert_before_seconds,
             depends_on: HashSet::new(), // No CPFP dependencies for new items (CPF-002)
@@ -915,6 +991,34 @@ impl Mempool {
             singleton_lineage: None, // TODO: extract from _any_ff_eligible (chia-sdk-driver)
         });
 
+        if is_pending {
+            // ── Phase 2a: Route to pending pool (POL-004) ──
+            //
+            // The item is valid but timelocked. Insert into the pending pool
+            // subject to count and cost limits. Returns PendingPoolFull if
+            // either limit is exceeded.
+            //
+            // Chia L1: PendingTxCache.add() at pending_tx_cache.py:60-76
+            let mut pending = self.pending.write().unwrap();
+            // TOCTOU safety: re-check under write lock.
+            if pending.pending.contains_key(&bundle_id) {
+                return Ok(SubmitResult::Pending {
+                    assert_height: assert_height.unwrap_or(0),
+                });
+            }
+            if pending.pending.len() >= self.config.max_pending_count {
+                return Err(MempoolError::PendingPoolFull);
+            }
+            if pending.pending_cost.saturating_add(virtual_cost) > self.config.max_pending_cost {
+                return Err(MempoolError::PendingPoolFull);
+            }
+            pending.insert(item);
+            return Ok(SubmitResult::Pending {
+                assert_height: assert_height.unwrap_or(0),
+            });
+        }
+
+        // ── Phase 2b: Insert into active pool ──
         {
             let mut pool = self.pool.write().unwrap();
             // TOCTOU safety: re-check under write lock before inserting.
@@ -1054,8 +1158,13 @@ impl Mempool {
 
     /// Return all pending (timelocked) bundle IDs.
     pub fn pending_bundle_ids(&self) -> Vec<Bytes32> {
-        // TODO: Collect keys from pending pool (POL-004)
-        vec![]
+        self.pending
+            .read()
+            .unwrap()
+            .pending
+            .keys()
+            .copied()
+            .collect()
     }
 
     /// Return all active mempool items as Arc references.
@@ -1087,8 +1196,22 @@ impl Mempool {
 
     /// Number of timelocked items in the pending pool.
     pub fn pending_len(&self) -> usize {
-        // TODO: Read from pending pool (POL-004)
-        0
+        self.pending.read().unwrap().pending.len()
+    }
+
+    /// Extract all pending items whose timelocks are satisfied at `height` / `timestamp`.
+    ///
+    /// Returns spend bundles for re-submission. Each returned bundle must be
+    /// re-submitted via `submit()` with fresh coin records and current chain state,
+    /// because coin records and timelock conditions must be re-evaluated.
+    ///
+    /// This is called internally by `on_new_block()` (LCY-001) when the chain
+    /// advances. It is exposed publicly for testing and for callers who manage
+    /// the lifecycle directly.
+    ///
+    /// See: [POL-004](docs/requirements/domains/pools/specs/POL-004.md)
+    pub fn drain_pending(&self, height: u64, timestamp: u64) -> Vec<SpendBundle> {
+        self.pending.write().unwrap().drain(height, timestamp)
     }
 
     /// Number of items in the conflict retry cache.
