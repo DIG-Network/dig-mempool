@@ -1,0 +1,52 @@
+domain_id: conflict_resolution
+normative: NORMATIVE.md
+verification: VERIFICATION.md
+
+items:
+  - id: CFR-001
+    section: "Conflict Detection"
+    summary: "Conflict detection via coin_index (active pool only)"
+    status: draft
+    spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-001.md"
+    tests: []
+    notes: ""
+
+  - id: CFR-002
+    section: "RBF Superset Rule"
+    summary: "RBF superset rule - new bundle must spend superset of conflicting removals"
+    status: draft
+    spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-002.md"
+    tests: []
+    notes: ""
+
+  - id: CFR-003
+    section: "RBF Fee-Per-Virtual-Cost"
+    summary: "RBF fee-per-virtual-cost must be strictly higher"
+    status: draft
+    spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-003.md"
+    tests: []
+    notes: ""
+
+  - id: CFR-004
+    section: "RBF Minimum Fee Bump"
+    summary: "RBF minimum fee bump of MIN_RBF_FEE_BUMP (10M mojos)"
+    status: draft
+    spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-004.md"
+    tests: []
+    notes: ""
+
+  - id: CFR-005
+    section: "Conflict Cache on RBF Failure"
+    summary: "On RBF failure, bundle added to conflict cache if space permits"
+    status: draft
+    spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-005.md"
+    tests: []
+    notes: ""
+
+  - id: CFR-006
+    section: "RBF + CPFP Cascade Eviction"
+    summary: "RBF replacing parent must cascade-evict all CPFP dependents"
+    status: draft
+    spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-006.md"
+    tests: []
+    notes: ""

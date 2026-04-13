@@ -1,0 +1,68 @@
+domain_id: crate_api
+normative: NORMATIVE.md
+verification: VERIFICATION.md
+
+items:
+  - id: API-001
+    section: "Construction"
+    summary: "Mempool::new() and Mempool::with_config() constructors"
+    status: gap
+    spec_ref: "docs/requirements/domains/crate_api/specs/API-001.md"
+    tests: []
+    notes: ""
+
+  - id: API-002
+    section: "Core Types"
+    summary: "MempoolItem struct with all fields, stored as Arc"
+    status: gap
+    spec_ref: "docs/requirements/domains/crate_api/specs/API-002.md"
+    tests: []
+    notes: ""
+
+  - id: API-003
+    section: "Core Types"
+    summary: "MempoolConfig with builder pattern and defaults"
+    status: gap
+    spec_ref: "docs/requirements/domains/crate_api/specs/API-003.md"
+    tests: []
+    notes: ""
+
+  - id: API-004
+    section: "Error Types"
+    summary: "MempoolError enum with Clone + PartialEq"
+    status: gap
+    spec_ref: "docs/requirements/domains/crate_api/specs/API-004.md"
+    tests: []
+    notes: ""
+
+  - id: API-005
+    section: "Result Types"
+    summary: "SubmitResult enum with Success and Pending"
+    status: gap
+    spec_ref: "docs/requirements/domains/crate_api/specs/API-005.md"
+    tests: []
+    notes: ""
+
+  - id: API-006
+    section: "Result Types"
+    summary: "MempoolStats struct with all fields"
+    status: gap
+    spec_ref: "docs/requirements/domains/crate_api/specs/API-006.md"
+    tests: []
+    notes: ""
+
+  - id: API-007
+    section: "Extension Traits"
+    summary: "AdmissionPolicy and BlockSelectionStrategy traits"
+    status: gap
+    spec_ref: "docs/requirements/domains/crate_api/specs/API-007.md"
+    tests: []
+    notes: ""
+
+  - id: API-008
+    section: "Query Methods"
+    summary: "All query methods on Mempool"
+    status: gap
+    spec_ref: "docs/requirements/domains/crate_api/specs/API-008.md"
+    tests: []
+    notes: ""

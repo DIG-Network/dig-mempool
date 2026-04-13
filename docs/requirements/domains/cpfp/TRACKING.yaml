@@ -1,0 +1,68 @@
+domain_id: cpfp
+normative: NORMATIVE.md
+verification: VERIFICATION.md
+
+items:
+  - id: CPF-001
+    section: "Mempool Coins Index"
+    summary: "Track coin_id -> creating_bundle_id for all active item additions"
+    status: draft
+    spec_ref: "docs/requirements/domains/cpfp/specs/CPF-001.md"
+    tests: []
+    notes: ""
+
+  - id: CPF-002
+    section: "Dependency Resolution"
+    summary: "Resolve dependencies via mempool_coins lookup"
+    status: draft
+    spec_ref: "docs/requirements/domains/cpfp/specs/CPF-002.md"
+    tests: []
+    notes: ""
+
+  - id: CPF-003
+    section: "Maximum Dependency Depth"
+    summary: "Enforce max_dependency_depth (default 25)"
+    status: draft
+    spec_ref: "docs/requirements/domains/cpfp/specs/CPF-003.md"
+    tests: []
+    notes: ""
+
+  - id: CPF-004
+    section: "Defensive Cycle Detection"
+    summary: "Detect dependency cycles (should be impossible in UTXO model)"
+    status: draft
+    spec_ref: "docs/requirements/domains/cpfp/specs/CPF-004.md"
+    tests: []
+    notes: ""
+
+  - id: CPF-005
+    section: "Package Fee Rate Computation"
+    summary: "Compute package_fee and package_virtual_cost across ancestor chain"
+    status: draft
+    spec_ref: "docs/requirements/domains/cpfp/specs/CPF-005.md"
+    tests: []
+    notes: ""
+
+  - id: CPF-006
+    section: "Descendant Score Tracking"
+    summary: "Maintain descendant_score as max(own FPC, any descendant package FPC)"
+    status: draft
+    spec_ref: "docs/requirements/domains/cpfp/specs/CPF-006.md"
+    tests: []
+    notes: ""
+
+  - id: CPF-007
+    section: "Cascade Eviction"
+    summary: "Recursive removal of all dependents when parent is removed"
+    status: draft
+    spec_ref: "docs/requirements/domains/cpfp/specs/CPF-007.md"
+    tests: []
+    notes: ""
+
+  - id: CPF-008
+    section: "Cross-Bundle Announcement Validation"
+    summary: "Validate ASSERT_COIN/PUZZLE_ANNOUNCEMENT and RECEIVE_MESSAGE against ancestors"
+    status: draft
+    spec_ref: "docs/requirements/domains/cpfp/specs/CPF-008.md"
+    tests: []
+    notes: ""
