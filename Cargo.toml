@@ -1,0 +1,28 @@
+[package]
+name = "dig-mempool"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75.0"
+description = "DIG L2 mempool — fee-prioritized, conflict-aware transaction pool with CPFP support"
+license = "MIT"
+authors = ["DIG Network"]
+repository = "https://github.com/DIG-Network/dig-mempool"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# DIG ecosystem
+dig-clvm = "0.1.0"
+dig-constants = "0.1.0"
+
+# Error handling
+thiserror = "2"
+
+# Serialization (for snapshot/restore)
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+chia-sdk-test = "0.30"
+hex-literal = "0.4"
+rand = "0.8"

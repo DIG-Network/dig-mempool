@@ -2,7 +2,7 @@
 
 | ID | Status | Summary | Verification Approach |
 |----|--------|---------|----------------------|
-| [API-001](NORMATIVE.md#API-001) | ❌ | Mempool constructors | Unit test: construct with new() and with_config(), verify defaults. |
+| [API-001](NORMATIVE.md#API-001) | ✅ | Mempool constructors | 7 tests: new/with_config compile, default config max_cost=8.25T, custom config applied, empty on construction, Send+Sync, independent instances. |
 | [API-002](NORMATIVE.md#API-002) | ❌ | MempoolItem struct | Unit test: all fields accessible, stored as Arc. |
 | [API-003](NORMATIVE.md#API-003) | ❌ | MempoolConfig builder | Unit test: builder pattern, default values correct. |
 | [API-004](NORMATIVE.md#API-004) | ❌ | MempoolError enum | Unit test: all variants constructible, Clone + PartialEq works. |
