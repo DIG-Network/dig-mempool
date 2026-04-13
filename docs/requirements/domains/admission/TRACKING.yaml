@@ -24,10 +24,11 @@ items:
   - id: ADM-003
     section: "Deduplication"
     summary: "Dedup check via SpendBundle::name() against seen-cache before CLVM validation"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/admission/specs/ADM-003.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_adm_003
+    notes: "SeenCache (HashSet+VecDeque FIFO), populated BEFORE CLVM, invalid bundles cached, LRU eviction, RwLock protected. 4 tests."
 
   - id: ADM-004
     section: "Fee and Cost Extraction"
