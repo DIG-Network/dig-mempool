@@ -53,14 +53,14 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 
 ## Phase 4: CPFP Dependencies
 
-- [ ] CPF-001 — mempool_coins index (coin_id -> creating bundle_id)
-- [ ] CPF-002 — Dependency resolution (mempool_coins lookup, dependency graph edges)
-- [ ] CPF-003 — Maximum dependency depth enforcement (default 25)
-- [ ] CPF-004 — Defensive cycle detection
-- [ ] CPF-005 — Package fee rate computation (ancestor aggregation)
-- [ ] CPF-006 — Descendant score tracking (eviction protection for parents)
-- [ ] CPF-007 — Cascade eviction (recursive removal of dependents)
-- [ ] CPF-008 — Cross-bundle announcement validation (CPFP chains)
+- [x] CPF-001 — mempool_coins index (coin_id -> creating bundle_id)
+- [x] CPF-002 — Dependency resolution (mempool_coins lookup, dependency graph edges)
+- [x] CPF-003 — Maximum dependency depth enforcement (default 25)
+- [x] CPF-004 — Defensive cycle detection
+- [x] CPF-005 — Package fee rate computation (ancestor aggregation)
+- [x] CPF-006 — Descendant score tracking (eviction protection for parents)
+- [x] CPF-007 — Cascade eviction (recursive removal of dependents)
+- [x] CPF-008 — Cross-bundle announcement validation (CPFP chains)
 
 ## Phase 5: Block Candidate Selection
 
