@@ -22,7 +22,11 @@ thiserror = "2"
 # Serialization (for snapshot/restore)
 serde = { version = "1", features = ["derive"] }
 
+# SHA-256 for identical-spend dedup index keys (POL-008)
+sha2 = "0.10.9"
+
 [dev-dependencies]
 chia-sdk-test = "0.30"
 hex-literal = "0.4"
 rand = "0.8"
+sha2 = "0.10.9"

@@ -124,10 +124,17 @@ items:
   - id: POL-008
     section: "Auxiliary Indices"
     summary: "Identical spend dedup index for cost adjustment"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-008.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_008_first_bundle_establishes_bearer
+      - vv_req_pol_008_second_bundle_gets_cost_saving
+      - vv_req_pol_008_non_eligible_not_indexed
+      - vv_req_pol_008_cost_bearer_removal_reassigns
+      - vv_req_pol_008_feature_disabled
+      - vv_req_pol_008_different_solutions_not_deduped
+      - vv_req_pol_008_effective_cost_calculation
+    notes: "dedup_index: HashMap<(Bytes32, Bytes32), Bytes32> and dedup_waiters: HashMap<(Bytes32, Bytes32), Vec<Bytes32>> added to ActivePool. sha2 moved to [dependencies] for sha256_bytes(). MempoolItem gained cost_saving/effective_virtual_cost/dedup_keys fields. Per-spend cost approximated as cost/num_spends (chia-consensus 0.26 lacks per-spend cost). Item construction split: pending path builds before lock, active path builds inside lock to atomically compute cost_saving. Public API: remove(), dedup_index_len(), get_dedup_bearer(). Pass-through puzzle ((q . ((51 NIL_PUZZLE_HASH amount)))) used for dedup-eligible test bundles. Nil-puzzle bundles have eligible_for_dedup=false (coin_amount > spend_additions=0)."
 
   - id: POL-009
     section: "Auxiliary Indices"
