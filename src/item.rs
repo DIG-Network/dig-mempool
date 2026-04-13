@@ -196,6 +196,11 @@ pub struct MempoolItem {
     /// Items with `assert_height > current_height` are stored in pending pool.
     pub assert_height: Option<u64>,
 
+    /// Earliest timestamp at which this bundle is valid.
+    /// Resolved from per-spend `seconds_relative` + `seconds_absolute`.
+    /// Items with `assert_seconds > current_timestamp` are stored in pending pool.
+    pub assert_seconds: Option<u64>,
+
     /// Latest height at which this bundle is valid (expiry).
     /// Resolved from per-spend `before_height_relative` + `before_height_absolute`.
     /// Items past expiry are removed during `on_new_block()`.
@@ -303,6 +308,7 @@ impl MempoolItem {
             },
             num_spends,
             assert_height: None,
+            assert_seconds: None,
             assert_before_height: None,
             assert_before_seconds: None,
             depends_on: HashSet::new(),

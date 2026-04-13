@@ -58,10 +58,21 @@ items:
   - id: POL-004
     section: "Pending Pool"
     summary: "Pending pool with count and cost limits"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-004.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_004_timelocked_item_goes_to_pending
+      - vv_req_pol_004_pending_not_in_active_pool
+      - vv_req_pol_004_pending_len_increments
+      - vv_req_pol_004_stats_pending_count
+      - vv_req_pol_004_pending_bundle_ids
+      - vv_req_pol_004_count_limit_enforced
+      - vv_req_pol_004_cost_limit_enforced
+      - vv_req_pol_004_promotion_on_new_block
+      - vv_req_pol_004_not_promoted_too_early
+      - vv_req_pol_004_removal_cleans_up
+      - vv_req_pol_004_pending_cost_tracked
+    notes: "PendingPool struct (HashMap + pending_coin_index + pending_cost). MempoolItem gained assert_seconds field. MempoolStats gained pending_cost field. submit() restructured: MempoolItem built before routing, then dispatched to pending or active pool. drain_pending(height, timestamp) returns SpendBundles for re-submission; called by on_new_block() (LCY-001)."
 
   - id: POL-005
     section: "Pending Pool"

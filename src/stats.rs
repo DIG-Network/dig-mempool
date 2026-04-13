@@ -48,6 +48,9 @@ pub struct MempoolStats {
     /// Number of timelocked items in the pending pool.
     pub pending_count: usize,
 
+    /// Total virtual cost of all pending items.
+    pub pending_cost: u64,
+
     /// Number of items in the conflict retry cache.
     pub conflict_count: usize,
 
@@ -104,6 +107,7 @@ impl MempoolStats {
         Self {
             active_count: 0,
             pending_count: 0,
+            pending_cost: 0,
             conflict_count: 0,
             total_cost: 0,
             total_fees: 0,
