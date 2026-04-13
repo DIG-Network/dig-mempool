@@ -11,7 +11,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 
 - [x] API-001 — Mempool constructor (`new`, `with_config`)
 - [x] API-002 — MempoolItem struct with all fields (Arc-wrapped)
-- [ ] API-003 — MempoolConfig with builder pattern and defaults
+- [x] API-003 — MempoolConfig with builder pattern and defaults
 - [ ] API-004 — MempoolError enum (Clone + PartialEq, 24 variants)
 - [ ] API-005 — SubmitResult enum (Success, Pending)
 - [ ] API-006 — MempoolStats struct (13 fields)

@@ -24,10 +24,11 @@ items:
   - id: API-003
     section: "Core Types"
     summary: "MempoolConfig with builder pattern and defaults"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/crate_api/specs/API-003.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_api_003
+    notes: "17 fields, Default impl, 17 builder methods, comprehensive doc comments with Chia L1 citations, 3 doc-tests"
 
   - id: API-004
     section: "Error Types"
