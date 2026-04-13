@@ -381,23 +381,41 @@ impl Mempool {
 
         // The ? operator converts dig_clvm::ValidationError to MempoolError
         // via the From<ValidationError> impl in error.rs (API-004).
-        let _spend_result =
+        let spend_result =
             dig_clvm::validate_spend_bundle(&bundle, &ctx, &config, Some(&mut bls_cache))?;
 
-        // Release the BLS cache before Phase 2
+        // Release the BLS cache before further processing
         drop(bls_cache);
 
-        // TODO(ADM-003): Dedup check via seen-cache
-        // TODO(ADM-004): Fee extraction + RESERVE_FEE check from _spend_result
-        // TODO(ADM-005): Virtual cost computation from _spend_result
-        // TODO(ADM-006): Timelock resolution from _spend_result.conditions
-        // TODO(ADM-007): Dedup/FF flag extraction from _spend_result.conditions
+        // ── ADM-004: Fee extraction + RESERVE_FEE check ──
+        //
+        // The fee is already computed by chia-consensus:
+        //   fee = removal_amount - addition_amount
+        // The RESERVE_FEE condition (opcode 52) is pre-summed in
+        // conditions.reserve_fee. If the actual fee is less than the
+        // declared minimum, reject the bundle.
+        //
+        // Chia L1 equivalent: mempool_manager.py:728
+        // https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L728
+        let fee = spend_result.fee;
+        let reserve_fee = spend_result.conditions.reserve_fee;
+        if fee < reserve_fee {
+            return Err(MempoolError::InsufficientFee {
+                required: reserve_fee,
+                available: fee,
+            });
+        }
+
+        // TODO(ADM-005): Virtual cost computation from spend_result
+        // TODO(ADM-006): Timelock resolution from spend_result.conditions
+        // TODO(ADM-007): Dedup/FF flag extraction from spend_result.conditions
         // TODO(CFR-001): Conflict detection against coin_index
         // TODO(POL-002): Capacity management / eviction
         //
         // ── Phase 2: State mutation (write lock) ──
-        // For now, after successful validation, we return Success.
+        // For now, after successful validation + fee check, return Success.
         // The actual insertion into pools will be implemented in POL-001.
+        let _ = spend_result; // Will be consumed by later pipeline steps
 
         Ok(SubmitResult::Success)
     }
