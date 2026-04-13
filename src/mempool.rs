@@ -45,6 +45,7 @@ use crate::selection::{
 };
 use crate::stats::MempoolStats;
 use crate::submit::{ConfirmedBundleInfo, RetryBundles, SubmitResult};
+use crate::traits::{MempoolEventHook, RemovalReason};
 
 // CoinRecord re-exported for get_mempool_coin_record return type.
 use dig_clvm::CoinRecord;
@@ -138,6 +139,38 @@ pub struct Mempool {
     ///
     /// See: [POL-006](docs/requirements/domains/pools/specs/POL-006.md)
     conflict: RwLock<ConflictCache>,
+
+    /// Event hooks registered via `add_event_hook()`.
+    ///
+    /// Called synchronously after state mutations. Hooks are fast, non-blocking
+    /// callbacks used for logging, metrics, and external notifications.
+    ///
+    /// Multiple hooks can be registered. They are called in registration order.
+    ///
+    /// See: [LCY-005](docs/requirements/domains/lifecycle/specs/LCY-005.md)
+    hooks: RwLock<Vec<Arc<dyn MempoolEventHook>>>,
+}
+
+/// Build a child → direct-parent map for all descendants of `root`.
+///
+/// Walks `dependents` (parent → children) depth-first before eviction.
+/// Used by `on_new_block()` so that `CascadeEvicted { parent_id }` hooks
+/// reference the direct parent rather than the eviction root.
+fn collect_descendants_parent_map(
+    dependents: &HashMap<Bytes32, std::collections::HashSet<Bytes32>>,
+    root: &Bytes32,
+) -> HashMap<Bytes32, Bytes32> {
+    let mut map = HashMap::new();
+    let mut stack = vec![*root];
+    while let Some(parent_id) = stack.pop() {
+        if let Some(children) = dependents.get(&parent_id) {
+            for &child_id in children {
+                map.entry(child_id).or_insert(parent_id);
+                stack.push(child_id);
+            }
+        }
+    }
+    map
 }
 
 impl Mempool {
@@ -182,6 +215,52 @@ impl Mempool {
             seen_cache: RwLock::new(SeenCache::new(seen_cache_size)),
             pending: RwLock::new(PendingPool::new()),
             conflict: RwLock::new(ConflictCache::new()),
+            hooks: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// Register an event hook to receive mempool mutation callbacks.
+    ///
+    /// Hooks are called synchronously after state mutations. Multiple hooks can
+    /// be registered; they are called in registration order. Implementations MUST
+    /// be fast and non-blocking (no I/O, no acquiring external locks).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use std::sync::{Arc, Mutex};
+    /// use dig_mempool::{Mempool, MempoolEventHook, MempoolItem};
+    /// use dig_mempool::Bytes32;
+    /// use dig_constants::DIG_TESTNET;
+    ///
+    /// struct CountingHook { count: Mutex<usize> }
+    /// impl MempoolEventHook for CountingHook {
+    ///     fn on_item_added(&self, _item: &MempoolItem) {
+    ///         *self.count.lock().unwrap() += 1;
+    ///     }
+    /// }
+    ///
+    /// let mempool = Mempool::new(DIG_TESTNET);
+    /// mempool.add_event_hook(Arc::new(CountingHook { count: Mutex::new(0) }));
+    /// ```
+    ///
+    /// See: [LCY-005](docs/requirements/domains/lifecycle/specs/LCY-005.md)
+    pub fn add_event_hook(&self, hook: Arc<dyn MempoolEventHook>) {
+        self.hooks.write().unwrap().push(hook);
+    }
+
+    /// Fire all registered hooks with the given closure.
+    ///
+    /// Acquires the hooks read lock and calls each hook in registration order.
+    /// Panics in hook implementations are caught and silently discarded to prevent
+    /// one misbehaving hook from corrupting mempool state.
+    fn fire_hooks<F: Fn(&dyn MempoolEventHook)>(&self, f: F) {
+        let hooks = self.hooks.read().unwrap();
+        for hook in hooks.iter() {
+            // Catch panics so one misbehaving hook can't corrupt mempool state.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                f(hook.as_ref());
+            }));
         }
     }
 
@@ -760,9 +839,13 @@ impl Mempool {
             if pending.pending_cost.saturating_add(virtual_cost) > self.config.max_pending_cost {
                 return Err(MempoolError::PendingPoolFull);
             }
+            let item_ref = Arc::clone(&item);
             pending.insert(item);
+            drop(pending);
+            let pending_height = assert_height.unwrap_or(0);
+            self.fire_hooks(|h| h.on_pending_added(&item_ref));
             return Ok(SubmitResult::Pending {
-                assert_height: assert_height.unwrap_or(0),
+                assert_height: pending_height,
             });
         }
 
@@ -1093,6 +1176,7 @@ impl Mempool {
                 )?;
             }
 
+            let item_ref = Arc::clone(&item);
             pool.insert(item);
 
             // ── CPF-006: Update ancestor descendant_scores ──
@@ -1101,6 +1185,10 @@ impl Mempool {
             // each ancestor's `descendant_score` to max(current_score, child_pkg_fpc).
             // This protects valuable parents from capacity eviction.
             pool.update_descendant_scores_on_add(&bundle_id);
+
+            // ── LCY-005: Fire on_item_added hook ──
+            drop(pool);
+            self.fire_hooks(|h| h.on_item_added(&item_ref));
         }
 
         Ok(SubmitResult::Success)
@@ -1295,12 +1383,17 @@ impl Mempool {
     ///
     /// See: [POL-006](docs/requirements/domains/pools/specs/POL-006.md)
     pub fn add_to_conflict_cache(&self, bundle: SpendBundle, estimated_cost: u64) -> bool {
-        self.conflict.write().unwrap().insert(
+        let bundle_id = bundle.name();
+        let inserted = self.conflict.write().unwrap().insert(
             bundle,
             estimated_cost,
             self.config.max_conflict_count,
             self.config.max_conflict_cost,
-        )
+        );
+        if inserted {
+            self.fire_hooks(|h| h.on_conflict_cached(&bundle_id));
+        }
+        inserted
     }
 
     /// Drain all conflict cache entries for re-submission.
@@ -1329,9 +1422,16 @@ impl Mempool {
     ///
     /// See: [LCY-004](docs/requirements/domains/lifecycle/specs/LCY-004.md)
     pub fn clear(&self) {
+        // Collect all bundle IDs to notify hooks before clearing.
+        // Fire hooks after releasing locks (hook implementations must not
+        // acquire mempool locks to avoid deadlocks).
+        let active_ids: Vec<Bytes32>;
+        let pending_ids: Vec<Bytes32>;
+
         // Active pool
         {
             let mut pool = self.pool.write().unwrap();
+            active_ids = pool.items.keys().copied().collect();
             pool.items.clear();
             pool.coin_index.clear();
             pool.mempool_coins.clear();
@@ -1346,6 +1446,7 @@ impl Mempool {
         // Pending pool
         {
             let mut pending = self.pending.write().unwrap();
+            pending_ids = pending.pending.keys().copied().collect();
             pending.pending.clear();
             pending.pending_coin_index.clear();
             pending.pending_cost = 0;
@@ -1359,6 +1460,14 @@ impl Mempool {
         // Seen cache
         {
             self.seen_cache.write().unwrap().clear();
+        }
+
+        // LCY-004: Fire on_item_removed(Cleared) for all removed active + pending items.
+        for id in active_ids {
+            self.fire_hooks(|h| h.on_item_removed(&id, RemovalReason::Cleared));
+        }
+        for id in pending_ids {
+            self.fire_hooks(|h| h.on_item_removed(&id, RemovalReason::Cleared));
         }
     }
 
@@ -1545,7 +1654,13 @@ impl Mempool {
         let best = sel_007_best([&s1, &s2, &s3, &s4]);
 
         // SEL-008: topological ordering.
-        sel_008_topological_order(best, &pool.dependencies)
+        let result = sel_008_topological_order(best, &pool.dependencies);
+        drop(pool);
+
+        // LCY-005: Fire on_block_selected hook.
+        self.fire_hooks(|h| h.on_block_selected(&result));
+
+        result
     }
 
     /// Process a newly confirmed block: remove confirmed and expired items,
@@ -1577,6 +1692,9 @@ impl Mempool {
     ) -> RetryBundles {
         let mut cascade_evicted: Vec<Bytes32> = Vec::new();
 
+        // Accumulate (bundle_id, reason) pairs for hooks — fired after all locks released.
+        let mut removal_events: Vec<(Bytes32, RemovalReason)> = Vec::new();
+
         // Step 0: Clear the seen cache so that promoted/retry bundles can be resubmitted.
         //
         // The seen cache prevents re-validation of bundles seen in the same block cycle.
@@ -1600,11 +1718,22 @@ impl Mempool {
             };
 
             for bundle_id in confirmed_ids {
+                // Collect child→parent map BEFORE eviction (dependents map is cleared).
+                let parent_map =
+                    collect_descendants_parent_map(&pool.dependents, &bundle_id);
+
                 // cascade_evict removes the root AND all dependents (children first).
                 // The last element is the root (confirmed item); everything before it
                 // is a cascade-evicted dependent.
                 let evicted = pool.cascade_evict(&bundle_id);
-                if let Some((_, dependents)) = evicted.split_last() {
+                if let Some((root, dependents)) = evicted.split_last() {
+                    removal_events.push((*root, RemovalReason::Confirmed));
+                    for dep_id in dependents {
+                        let parent_id =
+                            parent_map.get(dep_id).copied().unwrap_or(*root);
+                        removal_events
+                            .push((*dep_id, RemovalReason::CascadeEvicted { parent_id }));
+                    }
                     cascade_evicted.extend_from_slice(dependents);
                 }
             }
@@ -1622,8 +1751,18 @@ impl Mempool {
                 .collect();
 
             for bundle_id in expired_ids {
+                let parent_map =
+                    collect_descendants_parent_map(&pool.dependents, &bundle_id);
+
                 let evicted = pool.cascade_evict(&bundle_id);
-                if let Some((_, dependents)) = evicted.split_last() {
+                if let Some((root, dependents)) = evicted.split_last() {
+                    removal_events.push((*root, RemovalReason::Expired));
+                    for dep_id in dependents {
+                        let parent_id =
+                            parent_map.get(dep_id).copied().unwrap_or(*root);
+                        removal_events
+                            .push((*dep_id, RemovalReason::CascadeEvicted { parent_id }));
+                    }
                     cascade_evicted.extend_from_slice(dependents);
                 }
             }
@@ -1667,6 +1806,11 @@ impl Mempool {
         };
 
         // Step 5: TODO — Update fee estimator (FEE-004, not yet implemented).
+
+        // LCY-005: Fire removal hooks after all locks are released.
+        for (id, reason) in removal_events {
+            self.fire_hooks(|h| h.on_item_removed(&id, reason.clone()));
+        }
 
         RetryBundles {
             conflict_retries,
