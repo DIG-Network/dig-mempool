@@ -43,10 +43,17 @@ items:
   - id: POL-003
     section: "Active Pool"
     summary: "Expiry protection during eviction"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-003.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_003_protected_skipped_non_expiring_gets_mempool_full
+      - vv_req_pol_003_far_future_expiry_is_evictable
+      - vv_req_pol_003_no_expiry_no_protection
+      - vv_req_pol_003_expiring_evicts_lower_fpc_expiring
+      - vv_req_pol_003_mempool_full_when_all_protected
+      - vv_req_pol_003_configurable_protection_window
+      - vv_req_pol_003_boundary_at_protection_window_edge
+    notes: "is_expiry_protected() guards abh > current_height && abh <= current_height + protection_blocks. evict_for() has two passes: pass 1 evicts non-protected items, pass 2 (only if new item is itself expiry-protected) evicts protected items with lower FPC. abh values 1-127 encode as 1-byte CLVM atoms; probe_abh_virtual_cost() measures abh-bundle vc separately from nil-bundle vc."
 
   - id: POL-004
     section: "Pending Pool"
