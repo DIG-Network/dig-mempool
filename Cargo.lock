@@ -693,12 +693,15 @@ dependencies = [
 name = "dig-mempool"
 version = "0.1.0"
 dependencies = [
+ "chia-protocol",
+ "chia-sdk-driver",
  "chia-sdk-test",
  "dig-clvm",
  "dig-constants",
  "hex-literal",
  "rand",
  "serde",
+ "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.18",
 ]

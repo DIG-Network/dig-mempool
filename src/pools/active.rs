@@ -62,6 +62,15 @@ pub(crate) struct ActivePool {
     /// Dedup waiters: (coin_id, sha256(solution)) → ordered list of waiting bundle_ids.
     pub(crate) dedup_waiters: HashMap<(Bytes32, Bytes32), Vec<Bytes32>>,
 
+    /// Singleton fast-forward chain index: launcher_id → bundle_ids in lineage order.
+    ///
+    /// Populated when items with `singleton_lineage` are admitted. Sequential
+    /// singleton updates append to the vector; removal prunes the entry.
+    /// Gated by `MempoolConfig::enable_singleton_ff` (checked during admission).
+    ///
+    /// See: [POL-009](docs/requirements/domains/pools/specs/POL-009.md)
+    pub(crate) singleton_spends: HashMap<Bytes32, Vec<Bytes32>>,
+
     /// Running total of `item.virtual_cost` across all active items.
     pub(crate) total_cost: u64,
 
@@ -82,6 +91,7 @@ impl ActivePool {
             dependents: HashMap::new(),
             dedup_index: HashMap::new(),
             dedup_waiters: HashMap::new(),
+            singleton_spends: HashMap::new(),
             total_cost: 0,
             total_fees: 0,
             total_spends: 0,
@@ -125,6 +135,18 @@ impl ActivePool {
             self.dependents.entry(parent_id).or_default().insert(id);
         }
 
+        // ── POL-009: Singleton chain tracking ──
+        //
+        // Append this bundle_id to the launcher's chain.  Sequential singleton
+        // updates are CPFP children (spends a coin created by the prior version),
+        // so the chain grows with each sequential update.
+        if let Some(ref lineage) = item.singleton_lineage {
+            self.singleton_spends
+                .entry(lineage.launcher_id)
+                .or_default()
+                .push(id);
+        }
+
         // Update running accumulators.
         self.total_cost = self.total_cost.saturating_add(item.virtual_cost);
         self.total_fees = self.total_fees.saturating_add(item.fee);
@@ -150,10 +172,13 @@ impl ActivePool {
         // ── POL-008: Dedup index cleanup and bearer re-assignment ──
         for key in &item.dedup_keys {
             if self.dedup_index.get(key) == Some(bundle_id) {
-                let new_bearer = self
-                    .dedup_waiters
-                    .get_mut(key)
-                    .and_then(|w| if w.is_empty() { None } else { Some(w.remove(0)) });
+                let new_bearer = self.dedup_waiters.get_mut(key).and_then(|w| {
+                    if w.is_empty() {
+                        None
+                    } else {
+                        Some(w.remove(0))
+                    }
+                });
 
                 match new_bearer {
                     Some(new_id) => {
@@ -173,6 +198,16 @@ impl ActivePool {
                     if waiters.is_empty() {
                         self.dedup_waiters.remove(key);
                     }
+                }
+            }
+        }
+
+        // ── POL-009: Singleton chain tracking ──
+        if let Some(ref lineage) = item.singleton_lineage {
+            if let Some(chain) = self.singleton_spends.get_mut(&lineage.launcher_id) {
+                chain.retain(|bid| bid != bundle_id);
+                if chain.is_empty() {
+                    self.singleton_spends.remove(&lineage.launcher_id);
                 }
             }
         }

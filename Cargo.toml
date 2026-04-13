@@ -25,6 +25,9 @@ serde = { version = "1", features = ["derive"] }
 # chia-protocol serde support for SpendBundle, Bytes32, Coin serialization (LCY-007, FEE-005)
 chia-protocol = { version = "0.26", features = ["serde"] }
 
+# chia-sdk-driver for SingletonLayer::parse_puzzle (POL-009 singleton detection)
+chia-sdk-driver = "0.30"
+
 # SHA-256 for identical-spend dedup index keys (POL-008)
 sha2 = "0.10.9"
 

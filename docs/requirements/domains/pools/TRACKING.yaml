@@ -139,10 +139,19 @@ items:
   - id: POL-009
     section: "Auxiliary Indices"
     summary: "Singleton tracking index for chain ordering"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-009.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_009_data_structure_exists
+      - vv_req_pol_009_fresh_singleton_creates_chain
+      - vv_req_pol_009_sequential_update_appends
+      - vv_req_pol_009_removal_prunes_chain
+      - vv_req_pol_009_feature_disabled_no_tracking
+      - vv_req_pol_009_block_selection_lineage_order
+      - vv_req_pol_009_all_or_nothing_selection
+      - vv_req_pol_009_multiple_launchers_independent
+      - vv_req_pol_009_empty_chain_cleaned_up
+    notes: "singleton_spends: HashMap<Bytes32, Vec<Bytes32>> in ActivePool (launcher_id -> bundle_ids in lineage order). try_extract_singleton_lineage() uses SingletonLayer::<Puzzle>::parse_puzzle from chia-sdk-driver to detect singleton top-layer and extract launcher_id. Gated by MempoolConfig::enable_singleton_ff. force_insert() + MempoolItem::new_for_test_singleton() bypass admission for integration tests. sel_greedy() extended with all-or-nothing chain logic: when selecting a chain item, collect all unselected successors and check combined cost fits budget; if not, skip entire chain."
 
   - id: POL-010
     section: "Concurrency"

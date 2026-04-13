@@ -391,6 +391,42 @@ impl MempoolItem {
             dedup_keys: vec![],
         }
     }
+
+    /// Create a test item that appears to be a singleton spend.
+    ///
+    /// Sets `singleton_lineage` with the given `launcher_id` and `coin_id`.
+    /// All other fields are the same as `new_for_test()`.
+    ///
+    /// # Warning
+    ///
+    /// For testing only. Does not perform CLVM validation or puzzle parsing.
+    /// Use `Mempool::force_insert()` to inject into the pool.
+    pub fn new_for_test_singleton(
+        fee: u64,
+        cost: u64,
+        num_spends: usize,
+        launcher_id: Bytes32,
+        coin_id: Bytes32,
+        removals: Vec<Bytes32>,
+        additions: Vec<dig_clvm::Coin>,
+        depends_on: HashSet<Bytes32>,
+        depth: u32,
+    ) -> Self {
+        let mut item = Self::new_for_test(fee, cost, num_spends);
+        item.spend_bundle_id = coin_id; // use coin_id as a unique bundle ID
+        item.singleton_lineage = Some(SingletonLineageInfo {
+            coin_id,
+            parent_id: Bytes32::default(),
+            parent_parent_id: Bytes32::default(),
+            launcher_id,
+            inner_puzzle_hash: Bytes32::default(),
+        });
+        item.removals = removals;
+        item.additions = additions;
+        item.depends_on = depends_on;
+        item.depth = depth;
+        item
+    }
 }
 
 /// Serialize/deserialize `u128` as a decimal string.
