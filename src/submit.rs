@@ -1,4 +1,4 @@
-//! Submission result types.
+//! Submission result types and lifecycle return types.
 //!
 //! # Overview
 //!
@@ -6,6 +6,12 @@
 //! methods. It distinguishes between two successful outcomes:
 //! - `Success`: admitted to the active pool, eligible for block selection
 //! - `Pending`: valid but timelocked, stored in the pending pool
+//!
+//! `RetryBundles` is the return type of `Mempool::on_new_block()`. It provides
+//! the caller with bundles to resubmit after a block confirmation.
+//!
+//! `ConfirmedBundleInfo` carries per-bundle metrics about confirmed transactions
+//! for the fee estimator.
 //!
 //! Validation failures are returned as `Err(MempoolError)`, not as `SubmitResult`
 //! variants. This keeps the success and failure paths cleanly separated.
@@ -19,9 +25,78 @@
 //! # Spec Reference
 //!
 //! - [SPEC.md Section 3.2](../docs/resources/SPEC.md) — SubmitResult definition
+//! - [SPEC.md Section 3.5](../docs/resources/SPEC.md) — RetryBundles definition
 //! - [API-005](../docs/requirements/domains/crate_api/specs/API-005.md) — Requirement
+//! - [LCY-002](../docs/requirements/domains/lifecycle/specs/LCY-002.md) — RetryBundles spec
 //!
 //! [mempool_manager.py:600-603]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L600
+
+use dig_clvm::{Bytes32, SpendBundle};
+
+/// Bundles returned by `on_new_block()` that the caller should resubmit.
+///
+/// `on_new_block()` removes confirmed and expired items from internal pools
+/// and returns raw `SpendBundle`s for the caller to re-validate and resubmit
+/// with fresh `CoinRecord`s. This preserves the "no I/O" principle — the
+/// mempool does not look up current coin state itself.
+///
+/// # Field Semantics
+///
+/// | Field | Source | Action Required |
+/// |-------|--------|-----------------|
+/// | `conflict_retries` | Conflict cache | Resubmit via `submit()` with current coin records |
+/// | `pending_promotions` | Pending pool | Resubmit via `submit()` with current coin records |
+/// | `cascade_evicted` | Active pool dependents | Informational — caller may log or notify |
+///
+/// # Guarantees
+///
+/// - All items in `conflict_retries` have been removed from the conflict cache.
+/// - All items in `pending_promotions` have been removed from the pending pool.
+/// - All IDs in `cascade_evicted` have been removed from the active pool.
+/// - The struct is always returned even if all fields are empty.
+///
+/// See: [LCY-002](docs/requirements/domains/lifecycle/specs/LCY-002.md)
+///
+/// # Chia L1 Equivalent
+///
+/// Chia re-validates drained pending and conflict items inline under the lock
+/// ([`mempool_manager.py:900-918`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L900)).
+/// dig-mempool returns them for the caller to resubmit with fresh coin records.
+pub struct RetryBundles {
+    /// Bundles from the conflict cache whose conflicting item was removed.
+    ///
+    /// These lost a previous RBF check. Now that the conflicting item has been
+    /// confirmed or evicted, the caller should resubmit them.
+    pub conflict_retries: Vec<SpendBundle>,
+
+    /// Bundles from the pending pool whose timelocks are now satisfied.
+    ///
+    /// These were timelocked and could not be included in earlier blocks.
+    /// Resubmit them now that `height >= assert_height`.
+    pub pending_promotions: Vec<SpendBundle>,
+
+    /// Bundle IDs cascade-evicted because their parent was confirmed or expired.
+    ///
+    /// These spent coins created by an item that is no longer in the mempool.
+    /// They cannot be retried — their input coins no longer exist. Provided
+    /// for caller bookkeeping and user notification.
+    pub cascade_evicted: Vec<Bytes32>,
+}
+
+/// Per-bundle metrics for confirmed transactions, used by the fee estimator.
+///
+/// Passed to `on_new_block()` so the `FeeTracker` can update its rolling
+/// window with real confirmed data. See [FEE-004].
+///
+/// [FEE-004]: docs/requirements/domains/fee_estimation/specs/FEE-004.md
+pub struct ConfirmedBundleInfo {
+    /// CLVM execution cost of the confirmed bundle.
+    pub cost: u64,
+    /// Fee paid by the confirmed bundle (mojos).
+    pub fee: u64,
+    /// Number of coin spends in the confirmed bundle.
+    pub num_spends: usize,
+}
 
 /// Result of a successful `submit()` call.
 ///

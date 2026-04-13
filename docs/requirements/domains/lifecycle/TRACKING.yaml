@@ -6,18 +6,20 @@ items:
   - id: LCY-001
     section: "Block Confirmation"
     summary: "on_new_block() remove confirmed, cascade, expire, collect retries"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-001.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_lcy_001.rs
+    notes: "Implemented in Mempool::on_new_block (src/mempool.rs). 9 tests. Fee estimator step (FEE-004) is a no-op placeholder pending FEE-004."
 
   - id: LCY-002
     section: "Block Confirmation"
     summary: "RetryBundles struct with conflict_retries, pending_promotions, cascade_evicted"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-002.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_lcy_002.rs
+    notes: "Defined in src/submit.rs alongside SubmitResult. ConfirmedBundleInfo also defined. 6 tests."
 
   - id: LCY-003
     section: "Block Confirmation"

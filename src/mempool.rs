@@ -44,8 +44,7 @@ use crate::selection::{
     sel_002_is_selectable, sel_007_best, sel_008_topological_order, sel_greedy, SortStrategy,
 };
 use crate::stats::MempoolStats;
-use crate::submit::SubmitResult;
-
+use crate::submit::{ConfirmedBundleInfo, RetryBundles, SubmitResult};
 
 // CoinRecord re-exported for get_mempool_coin_record return type.
 use dig_clvm::CoinRecord;
@@ -641,18 +640,16 @@ impl Mempool {
         //
         // We hash the solution bytes using raw SHA-256 (not CLVM tree hash)
         // to match the Chia L1 `IdenticalSpendDedup` implementation.
-        let dedup_keys: Vec<(Bytes32, Bytes32)> = if !is_pending
-            && eligible_for_dedup
-            && self.config.enable_identical_spend_dedup
-        {
-            bundle
-                .coin_spends
-                .iter()
-                .map(|cs| (cs.coin.coin_id(), sha256_bytes(cs.solution.as_ref())))
-                .collect()
-        } else {
-            vec![]
-        };
+        let dedup_keys: Vec<(Bytes32, Bytes32)> =
+            if !is_pending && eligible_for_dedup && self.config.enable_identical_spend_dedup {
+                bundle
+                    .coin_spends
+                    .iter()
+                    .map(|cs| (cs.coin.coin_id(), sha256_bytes(cs.solution.as_ref())))
+                    .collect()
+            } else {
+                vec![]
+            };
 
         if is_pending {
             // ── Phase 2a: Route to pending pool (POL-004) ──
@@ -934,12 +931,9 @@ impl Mempool {
                             // Find the solution hash for this coin in the incoming bundle.
                             // dedup_key_set is keyed by (coin_id, sol_hash) so we need
                             // to search for any entry whose first element is *coin_id*.
-                            let is_dedup = dedup_keys
-                                .iter()
-                                .any(|(cid, sol_hash)| {
-                                    cid == coin_id
-                                        && pool.dedup_index.contains_key(&(*cid, *sol_hash))
-                                });
+                            let is_dedup = dedup_keys.iter().any(|(cid, sol_hash)| {
+                                cid == coin_id && pool.dedup_index.contains_key(&(*cid, *sol_hash))
+                            });
                             if is_dedup {
                                 return None; // waiter — not a real conflict
                             }
@@ -957,8 +951,7 @@ impl Mempool {
                         .filter_map(|id| pool.items.get(id).cloned())
                         .collect();
 
-                    let total_conflict_fee: u64 =
-                        conflicting_items.iter().map(|i| i.fee).sum();
+                    let total_conflict_fee: u64 = conflicting_items.iter().map(|i| i.fee).sum();
                     let total_conflict_vc: u64 =
                         conflicting_items.iter().map(|i| i.virtual_cost).sum();
 
@@ -967,8 +960,7 @@ impl Mempool {
                     // Every coin spent by any conflicting bundle must also appear in the
                     // new bundle's removals. Prevents "freeing" a conflicting bundle's
                     // coins while only partially replacing it.
-                    let new_removals_set: HashSet<Bytes32> =
-                        removals.iter().copied().collect();
+                    let new_removals_set: HashSet<Bytes32> = removals.iter().copied().collect();
                     for conflict_item in &conflicting_items {
                         for &coin_id in &conflict_item.removals {
                             if !new_removals_set.contains(&coin_id) {
@@ -985,10 +977,8 @@ impl Mempool {
                     // arithmetic (FPC_SCALE) to avoid floating-point non-determinism.
                     //
                     // Chia L1: uses fee_per_cost (float); we use scaled integers.
-                    let conflict_fpc = MempoolItem::compute_fpc_scaled(
-                        total_conflict_fee,
-                        total_conflict_vc,
-                    );
+                    let conflict_fpc =
+                        MempoolItem::compute_fpc_scaled(total_conflict_fee, total_conflict_vc);
                     if fee_per_virtual_cost_scaled <= conflict_fpc {
                         self.add_to_conflict_cache(bundle, virtual_cost);
                         return Err(MempoolError::RbfFpcNotHigher);
@@ -1518,10 +1508,38 @@ impl Mempool {
             candidates.iter().map(|i| i.spend_bundle_id).collect();
 
         // Run all four strategies.
-        let s1 = sel_greedy(&candidates, &pool, &candidates_set, max_block_cost, max_spends, SortStrategy::Density);
-        let s2 = sel_greedy(&candidates, &pool, &candidates_set, max_block_cost, max_spends, SortStrategy::Whale);
-        let s3 = sel_greedy(&candidates, &pool, &candidates_set, max_block_cost, max_spends, SortStrategy::Compact);
-        let s4 = sel_greedy(&candidates, &pool, &candidates_set, max_block_cost, max_spends, SortStrategy::Age);
+        let s1 = sel_greedy(
+            &candidates,
+            &pool,
+            &candidates_set,
+            max_block_cost,
+            max_spends,
+            SortStrategy::Density,
+        );
+        let s2 = sel_greedy(
+            &candidates,
+            &pool,
+            &candidates_set,
+            max_block_cost,
+            max_spends,
+            SortStrategy::Whale,
+        );
+        let s3 = sel_greedy(
+            &candidates,
+            &pool,
+            &candidates_set,
+            max_block_cost,
+            max_spends,
+            SortStrategy::Compact,
+        );
+        let s4 = sel_greedy(
+            &candidates,
+            &pool,
+            &candidates_set,
+            max_block_cost,
+            max_spends,
+            SortStrategy::Age,
+        );
 
         // SEL-007: pick the best set.
         let best = sel_007_best([&s1, &s2, &s3, &s4]);
@@ -1529,5 +1547,123 @@ impl Mempool {
         // SEL-008: topological ordering.
         sel_008_topological_order(best, &pool.dependencies)
     }
-}
 
+    /// Process a newly confirmed block: remove confirmed and expired items,
+    /// collect pending promotions, and drain eligible conflict-cache retries.
+    ///
+    /// # Arguments
+    ///
+    /// - `height`: the new confirmed block height.
+    /// - `timestamp`: the new confirmed block timestamp.
+    /// - `spent_coin_ids`: coin IDs spent (confirmed) in this block.
+    /// - `confirmed_bundles`: per-bundle metrics for the confirmed transactions
+    ///   (forwarded to the fee estimator — currently a no-op until FEE-004).
+    ///
+    /// # Processing Order
+    ///
+    /// 1. Remove confirmed items (spending `spent_coin_ids`) + cascade-evict their dependents.
+    /// 2. Remove expired items (`assert_before_height <= height` or `assert_before_seconds <= timestamp`) + cascade.
+    /// 3. Collect pending promotions (`assert_height <= height`).
+    /// 4. Collect conflict retries (bundles whose conflicting active items are gone).
+    /// 5. TODO: Update fee estimator (FEE-004).
+    ///
+    /// See: [LCY-001](docs/requirements/domains/lifecycle/specs/LCY-001.md)
+    pub fn on_new_block(
+        &self,
+        height: u64,
+        timestamp: u64,
+        spent_coin_ids: &[Bytes32],
+        _confirmed_bundles: &[ConfirmedBundleInfo],
+    ) -> RetryBundles {
+        let mut cascade_evicted: Vec<Bytes32> = Vec::new();
+
+        // Steps 1 + 2: Remove confirmed + expired items under a single write lock.
+        {
+            let mut pool = self.pool.write().unwrap();
+
+            // Step 1: Confirmed items — bundles spending any of the confirmed coins.
+            let confirmed_ids: Vec<Bytes32> = {
+                let mut seen = HashSet::new();
+                spent_coin_ids
+                    .iter()
+                    .filter_map(|coin_id| pool.coin_index.get(coin_id).copied())
+                    .filter(|id| seen.insert(*id))
+                    .collect()
+            };
+
+            for bundle_id in confirmed_ids {
+                // cascade_evict removes the root AND all dependents (children first).
+                // The last element is the root (confirmed item); everything before it
+                // is a cascade-evicted dependent.
+                let evicted = pool.cascade_evict(&bundle_id);
+                if let Some((_, dependents)) = evicted.split_last() {
+                    cascade_evicted.extend_from_slice(dependents);
+                }
+            }
+
+            // Step 2: Expired items — past assert_before_height or assert_before_seconds.
+            let expired_ids: Vec<Bytes32> = pool
+                .items
+                .values()
+                .filter(|item| {
+                    let h_expired = item.assert_before_height.map_or(false, |h| h <= height);
+                    let s_expired = item.assert_before_seconds.map_or(false, |s| s <= timestamp);
+                    h_expired || s_expired
+                })
+                .map(|item| item.spend_bundle_id)
+                .collect();
+
+            for bundle_id in expired_ids {
+                let evicted = pool.cascade_evict(&bundle_id);
+                if let Some((_, dependents)) = evicted.split_last() {
+                    cascade_evicted.extend_from_slice(dependents);
+                }
+            }
+        }
+
+        // Step 3: Pending promotions — timelocked items whose height is now satisfied.
+        let pending_promotions = {
+            let mut pending = self.pending.write().unwrap();
+            pending.drain(height, timestamp)
+        };
+
+        // Step 4: Conflict retries — bundles whose conflicting active items are gone.
+        //
+        // A conflict-cache bundle is retryable when none of the coins it spends
+        // are still claimed by an active pool item. If any conflicting coin is still
+        // active, the bundle would fail RBF again immediately.
+        let conflict_retries = {
+            let pool = self.pool.read().unwrap();
+            let mut conflict = self.conflict.write().unwrap();
+
+            let retryable: Vec<Bytes32> = conflict
+                .cache
+                .iter()
+                .filter(|(_, (bundle, _))| {
+                    !bundle
+                        .coin_spends
+                        .iter()
+                        .any(|cs| pool.coin_index.contains_key(&cs.coin.coin_id()))
+                })
+                .map(|(id, _)| *id)
+                .collect();
+
+            let mut bundles = Vec::with_capacity(retryable.len());
+            for id in retryable {
+                if let Some((bundle, cost)) = conflict.cache.remove(&id) {
+                    conflict.total_cost = conflict.total_cost.saturating_sub(cost);
+                    bundles.push(bundle);
+                }
+            }
+            bundles
+        };
+
+        // Step 5: TODO — Update fee estimator (FEE-004, not yet implemented).
+
+        RetryBundles {
+            conflict_retries,
+            pending_promotions,
+            cascade_evicted,
+        }
+    }
+}
