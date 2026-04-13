@@ -424,7 +424,107 @@ impl Mempool {
         let _virtual_cost = MempoolItem::compute_virtual_cost(cost, num_spends);
         let _fee_per_virtual_cost_scaled = MempoolItem::compute_fpc_scaled(fee, _virtual_cost);
 
-        // TODO(ADM-006): Timelock resolution from spend_result.conditions
+        // ── ADM-006: Timelock resolution ──
+        //
+        // Resolve relative timelocks to absolute values using coin records.
+        // Then check for impossible constraints and expiry.
+        //
+        // Chia L1 equivalent: compute_assert_height() at mempool_manager.py:81-126
+        // https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L81
+        let mut assert_height: Option<u64> = None;
+        let mut assert_seconds: Option<u64> = None;
+        let mut assert_before_height: Option<u64> = None;
+        let mut assert_before_seconds: Option<u64> = None;
+
+        // Bundle-level absolute timelocks
+        if spend_result.conditions.height_absolute > 0 {
+            assert_height = Some(
+                assert_height
+                    .unwrap_or(0)
+                    .max(spend_result.conditions.height_absolute as u64),
+            );
+        }
+        if spend_result.conditions.seconds_absolute > 0 {
+            assert_seconds = Some(
+                assert_seconds
+                    .unwrap_or(0)
+                    .max(spend_result.conditions.seconds_absolute),
+            );
+        }
+        if let Some(bha) = spend_result.conditions.before_height_absolute {
+            let val = bha as u64;
+            assert_before_height = Some(assert_before_height.map_or(val, |v: u64| v.min(val)));
+        }
+        if let Some(bsa) = spend_result.conditions.before_seconds_absolute {
+            assert_before_seconds = Some(assert_before_seconds.map_or(bsa, |v: u64| v.min(bsa)));
+        }
+
+        // Per-spend relative timelocks resolved to absolute
+        for spend_cond in &spend_result.conditions.spends {
+            let coin_id = spend_cond.coin_id;
+            // Look up the coin record for this spend's coin.
+            // If not found (CPFP candidate), use current_height/timestamp
+            // matching Chia's ephemeral coin handling (mempool_manager.py:716-722).
+            let (confirmed_index, timestamp) = match coin_records.get(&coin_id) {
+                Some(record) => (record.confirmed_block_index as u64, record.timestamp),
+                None => (current_height, current_timestamp),
+            };
+
+            if let Some(hr) = spend_cond.height_relative {
+                let resolved = confirmed_index + hr as u64;
+                assert_height = Some(assert_height.unwrap_or(0).max(resolved));
+            }
+            if let Some(sr) = spend_cond.seconds_relative {
+                let resolved = timestamp + sr;
+                assert_seconds = Some(assert_seconds.unwrap_or(0).max(resolved));
+            }
+            if let Some(bhr) = spend_cond.before_height_relative {
+                let resolved = confirmed_index + bhr as u64;
+                assert_before_height =
+                    Some(assert_before_height.map_or(resolved, |v: u64| v.min(resolved)));
+            }
+            if let Some(bsr) = spend_cond.before_seconds_relative {
+                let resolved = timestamp + bsr;
+                assert_before_seconds =
+                    Some(assert_before_seconds.map_or(resolved, |v: u64| v.min(resolved)));
+            }
+        }
+
+        // Impossible constraint detection
+        // Chia: mempool_manager.py:791-796
+        if let (Some(ah), Some(abh)) = (assert_height, assert_before_height) {
+            if abh <= ah {
+                return Err(MempoolError::ImpossibleTimelocks);
+            }
+        }
+        if let (Some(as_), Some(abs)) = (assert_seconds, assert_before_seconds) {
+            if abs <= as_ {
+                return Err(MempoolError::ImpossibleTimelocks);
+            }
+        }
+
+        // Expiry check
+        if let Some(abh) = assert_before_height {
+            if current_height >= abh {
+                return Err(MempoolError::Expired);
+            }
+        }
+        if let Some(abs) = assert_before_seconds {
+            if current_timestamp >= abs {
+                return Err(MempoolError::Expired);
+            }
+        }
+
+        // Pending determination: if assert_height > current_height, route to pending
+        let is_pending = matches!(assert_height, Some(ah) if ah > current_height)
+            || matches!(assert_seconds, Some(as_) if as_ > current_timestamp);
+
+        if is_pending {
+            return Ok(SubmitResult::Pending {
+                assert_height: assert_height.unwrap_or(0),
+            });
+        }
+
         // TODO(ADM-007): Dedup/FF flag extraction from spend_result.conditions
         // TODO(CFR-001): Conflict detection against coin_index
         // TODO(POL-002): Capacity management / eviction
