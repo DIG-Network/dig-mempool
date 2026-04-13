@@ -6,10 +6,11 @@ items:
   - id: ADM-001
     section: "Entry Point"
     summary: "submit() entry point accepts SpendBundle + CoinRecords, returns Result<SubmitResult, MempoolError>"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/admission/specs/ADM-001.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_adm_001
+    notes: "submit() and submit_with_policy() signatures established. Pipeline stubbed; full wiring in ADM-002+. Concurrent access tested."
 
   - id: ADM-002
     section: "Entry Point"

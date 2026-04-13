@@ -31,12 +31,14 @@
 
 use std::sync::{Arc, RwLock};
 
-use dig_clvm::Bytes32;
+use dig_clvm::{Bytes32, SpendBundle};
 use dig_constants::NetworkConstants;
 
 use crate::config::MempoolConfig;
+use crate::error::MempoolError;
 use crate::item::MempoolItem;
 use crate::stats::MempoolStats;
+use crate::submit::SubmitResult;
 
 // CoinRecord re-exported for get_mempool_coin_record return type.
 use dig_clvm::CoinRecord;
@@ -150,6 +152,91 @@ impl Mempool {
     /// See: [`MempoolStats`] and [API-006](docs/requirements/domains/crate_api/specs/API-006.md).
     pub fn stats(&self) -> MempoolStats {
         MempoolStats::empty(self.config.max_total_cost)
+    }
+
+    // ── Submission Methods (ADM-001) ──
+    //
+    // These are the primary entry points for transaction admission.
+    // The full admission pipeline (CLVM validation, dedup, fee checks,
+    // conflict detection, RBF, CPFP, capacity management) will be wired
+    // in ADM-002 through ADM-007. For now, the signature is established.
+    //
+    // Mirrors Chia's `MempoolManager.add_spend_bundle()`:
+    // https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L538
+
+    /// Validate and submit a spend bundle to the mempool.
+    ///
+    /// The mempool internally calls `dig_clvm::validate_spend_bundle()` for
+    /// CLVM dry-run + BLS signature verification (ADM-002), then runs the
+    /// full admission pipeline: dedup (ADM-003), fee check (ADM-004),
+    /// virtual cost (ADM-005), timelock resolution (ADM-006), flag extraction
+    /// (ADM-007), conflict detection (CFR-001), RBF (CFR-002-004), CPFP
+    /// (CPF-001-005), capacity management (POL-002), and optional admission
+    /// policy.
+    ///
+    /// # Parameters
+    ///
+    /// - `bundle`: The raw `SpendBundle` to validate and admit. Consumed by value.
+    /// - `coin_records`: Coin state for every on-chain coin spent by the bundle.
+    ///   For CPFP children, include synthetic records from `get_mempool_coin_record()`.
+    /// - `current_height`: Current L2 block height (for timelock resolution).
+    /// - `current_timestamp`: Current L2 block timestamp.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(SubmitResult::Success)` — admitted to active pool
+    /// - `Ok(SubmitResult::Pending { assert_height })` — valid but timelocked
+    /// - `Err(MempoolError)` — rejected (see variant for reason)
+    ///
+    /// # Concurrency
+    ///
+    /// Takes `&self` (not `&mut self`). Phase 1 (CLVM) runs lock-free;
+    /// Phase 2 (insertion) acquires write lock briefly.
+    ///
+    /// See: [ADM-001](docs/requirements/domains/admission/specs/ADM-001.md)
+    pub fn submit(
+        &self,
+        _bundle: SpendBundle,
+        _coin_records: &std::collections::HashMap<Bytes32, CoinRecord>,
+        _current_height: u64,
+        _current_timestamp: u64,
+    ) -> Result<SubmitResult, MempoolError> {
+        // TODO(ADM-002): Wire CLVM validation via dig_clvm::validate_spend_bundle()
+        // TODO(ADM-003): Dedup check via seen-cache
+        // TODO(ADM-004): Fee extraction + RESERVE_FEE check
+        // TODO(ADM-005): Virtual cost computation
+        // TODO(ADM-006): Timelock resolution
+        // TODO(ADM-007): Dedup/FF flag extraction
+        // TODO(CFR-001): Conflict detection
+        // TODO(POL-002): Capacity management
+        //
+        // For ADM-001, we only establish the signature. The pipeline is stubbed.
+        Ok(SubmitResult::Success)
+    }
+
+    /// Submit with a custom admission policy applied after standard validation.
+    ///
+    /// Identical to `submit()` except the provided `policy` is invoked after
+    /// all standard checks pass (Phase 2, step 16). If the policy returns
+    /// `Err(reason)`, the bundle is rejected with `MempoolError::PolicyRejected`.
+    ///
+    /// # Parameters
+    ///
+    /// Same as `submit()` plus:
+    /// - `policy`: A `&dyn AdmissionPolicy` that inspects the validated item
+    ///   and current pool state to make a domain-specific admission decision.
+    ///
+    /// See: [API-007](docs/requirements/domains/crate_api/specs/API-007.md)
+    pub fn submit_with_policy(
+        &self,
+        _bundle: SpendBundle,
+        _coin_records: &std::collections::HashMap<Bytes32, CoinRecord>,
+        _current_height: u64,
+        _current_timestamp: u64,
+        _policy: &dyn crate::traits::AdmissionPolicy,
+    ) -> Result<SubmitResult, MempoolError> {
+        // TODO: Same pipeline as submit() + policy check at step 16
+        Ok(SubmitResult::Success)
     }
 
     // ── Query Methods (API-008) ──

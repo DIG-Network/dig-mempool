@@ -2,7 +2,7 @@
 
 | ID | Status | Summary | Verification Approach |
 |----|--------|---------|----------------------|
-| [ADM-001](NORMATIVE.md#ADM-001) | ❌ | submit() entry point signature | Signature matches spec. Compiles clean. |
+| [ADM-001](NORMATIVE.md#ADM-001) | ✅ | submit() entry point signature | 6 tests: signature compiles, &self not &mut, bundle consumed by value, submit_with_policy exists, return type matchable, concurrent access. |
 | [ADM-002](NORMATIVE.md#ADM-002) | ❌ | Internal CLVM validation via dig-clvm | Calls dig_clvm::validate_spend_bundle(). Invalid bundles rejected. |
 | [ADM-003](NORMATIVE.md#ADM-003) | ❌ | Dedup check via seen-cache | SpendBundle::name() checked before CLVM. AlreadySeen returned. |
 | [ADM-004](NORMATIVE.md#ADM-004) | ❌ | Fee extraction and RESERVE_FEE check | fee from SpendResult.fee. InsufficientFee if fee < reserve_fee. |
