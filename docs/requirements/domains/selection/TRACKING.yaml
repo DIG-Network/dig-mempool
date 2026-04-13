@@ -1,0 +1,68 @@
+domain_id: selection
+normative: NORMATIVE.md
+verification: VERIFICATION.md
+
+items:
+  - id: SEL-001
+    section: "Entry Point"
+    summary: "select_for_block() entry point signature"
+    status: draft
+    spec_ref: "docs/requirements/domains/selection/specs/SEL-001.md"
+    tests: []
+    notes: ""
+
+  - id: SEL-002
+    section: "Pre-Selection Filtering"
+    summary: "Exclude expired, future-timelocked items before strategy runs"
+    status: draft
+    spec_ref: "docs/requirements/domains/selection/specs/SEL-002.md"
+    tests: []
+    notes: ""
+
+  - id: SEL-003
+    section: "Selection Strategies"
+    summary: "Strategy 1: fee-per-cost density sort"
+    status: draft
+    spec_ref: "docs/requirements/domains/selection/specs/SEL-003.md"
+    tests: []
+    notes: ""
+
+  - id: SEL-004
+    section: "Selection Strategies"
+    summary: "Strategy 2: absolute fee whale sort"
+    status: draft
+    spec_ref: "docs/requirements/domains/selection/specs/SEL-004.md"
+    tests: []
+    notes: ""
+
+  - id: SEL-005
+    section: "Selection Strategies"
+    summary: "Strategy 3: compact high-value sort"
+    status: draft
+    spec_ref: "docs/requirements/domains/selection/specs/SEL-005.md"
+    tests: []
+    notes: ""
+
+  - id: SEL-006
+    section: "Selection Strategies"
+    summary: "Strategy 4: age-weighted sort"
+    status: draft
+    spec_ref: "docs/requirements/domains/selection/specs/SEL-006.md"
+    tests: []
+    notes: ""
+
+  - id: SEL-007
+    section: "Best Selection"
+    summary: "Compare 4 strategy candidates and pick best"
+    status: draft
+    spec_ref: "docs/requirements/domains/selection/specs/SEL-007.md"
+    tests: []
+    notes: ""
+
+  - id: SEL-008
+    section: "Final Ordering"
+    summary: "Topological order with FPC tiebreakers"
+    status: draft
+    spec_ref: "docs/requirements/domains/selection/specs/SEL-008.md"
+    tests: []
+    notes: ""

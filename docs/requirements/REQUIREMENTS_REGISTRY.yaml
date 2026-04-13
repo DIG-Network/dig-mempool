@@ -1,0 +1,86 @@
+schema_version: 1
+
+status_values:
+  active: "Requirements in use for dig-mempool implementation"
+  planned: "Scoped; not yet verified"
+
+domains:
+  - id: admission
+    title: "Admission Pipeline"
+    summary: "Submission validation pipeline: dedup, CLVM validation via dig-clvm, fee extraction, cost computation, timelock resolution, flag extraction, batch submission."
+    status: active
+    paths:
+      normative: domains/admission/NORMATIVE.md
+      verification: domains/admission/VERIFICATION.md
+      tracking: domains/admission/TRACKING.yaml
+      requirement_specs: domains/admission
+
+  - id: conflict_resolution
+    title: "Conflict Resolution"
+    summary: "Conflict detection via coin_index, replace-by-fee evaluation (superset rule, higher FPC, minimum fee bump), conflict cache management."
+    status: planned
+    paths:
+      normative: domains/conflict_resolution/NORMATIVE.md
+      verification: domains/conflict_resolution/VERIFICATION.md
+      tracking: domains/conflict_resolution/TRACKING.yaml
+      requirement_specs: domains/conflict_resolution
+
+  - id: cpfp
+    title: "CPFP Dependencies"
+    summary: "Child-pays-for-parent dependency chains: mempool coin lookup, depth limits, package fee rates, cross-bundle announcement validation, cascade eviction."
+    status: planned
+    paths:
+      normative: domains/cpfp/NORMATIVE.md
+      verification: domains/cpfp/VERIFICATION.md
+      tracking: domains/cpfp/TRACKING.yaml
+      requirement_specs: domains/cpfp
+
+  - id: selection
+    title: "Block Selection"
+    summary: "Block candidate selection: multi-strategy greedy (density, whale, compact, age-weighted), topological ordering, CPFP-aware packing, custom strategy trait."
+    status: planned
+    paths:
+      normative: domains/selection/NORMATIVE.md
+      verification: domains/selection/VERIFICATION.md
+      tracking: domains/selection/TRACKING.yaml
+      requirement_specs: domains/selection
+
+  - id: pools
+    title: "Pool Management"
+    summary: "Active pool capacity management, pending pool limits, conflict cache limits, eviction ordering (descendant_score), expiry protection, seen-cache management."
+    status: planned
+    paths:
+      normative: domains/pools/NORMATIVE.md
+      verification: domains/pools/VERIFICATION.md
+      tracking: domains/pools/TRACKING.yaml
+      requirement_specs: domains/pools
+
+  - id: fee_estimation
+    title: "Fee Estimation"
+    summary: "Bitcoin-style fee tracker with historical block data, time-target fee rate estimates, minimum admission fee computation based on utilization."
+    status: planned
+    paths:
+      normative: domains/fee_estimation/NORMATIVE.md
+      verification: domains/fee_estimation/VERIFICATION.md
+      tracking: domains/fee_estimation/TRACKING.yaml
+      requirement_specs: domains/fee_estimation
+
+  - id: lifecycle
+    title: "Lifecycle"
+    summary: "Block confirmation (on_new_block), reorg recovery (clear), event hooks (MempoolEventHook trait), snapshot/restore persistence, retry bundle extraction."
+    status: planned
+    paths:
+      normative: domains/lifecycle/NORMATIVE.md
+      verification: domains/lifecycle/VERIFICATION.md
+      tracking: domains/lifecycle/TRACKING.yaml
+      requirement_specs: domains/lifecycle
+
+  - id: crate_api
+    title: "Crate API"
+    summary: "Public API surface: Mempool constructor, MempoolConfig, MempoolError, MempoolItem, SubmitResult, extension traits (AdmissionPolicy, BlockSelectionStrategy), re-exports."
+    status: planned
+    paths:
+      normative: domains/crate_api/NORMATIVE.md
+      verification: domains/crate_api/VERIFICATION.md
+      tracking: domains/crate_api/TRACKING.yaml
+      requirement_specs: domains/crate_api

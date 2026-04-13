@@ -1,0 +1,68 @@
+domain_id: lifecycle
+normative: NORMATIVE.md
+verification: VERIFICATION.md
+
+items:
+  - id: LCY-001
+    section: "Block Confirmation"
+    summary: "on_new_block() remove confirmed, cascade, expire, collect retries"
+    status: gap
+    spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-001.md"
+    tests: []
+    notes: ""
+
+  - id: LCY-002
+    section: "Block Confirmation"
+    summary: "RetryBundles struct with conflict_retries, pending_promotions, cascade_evicted"
+    status: gap
+    spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-002.md"
+    tests: []
+    notes: ""
+
+  - id: LCY-003
+    section: "Block Confirmation"
+    summary: "Caller workflow: on_new_block -> submit retries -> select_for_block"
+    status: gap
+    spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-003.md"
+    tests: []
+    notes: ""
+
+  - id: LCY-004
+    section: "Reset"
+    summary: "clear() resets all state for reorg recovery"
+    status: gap
+    spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-004.md"
+    tests: []
+    notes: ""
+
+  - id: LCY-005
+    section: "Event Hooks"
+    summary: "MempoolEventHook trait with callback methods"
+    status: gap
+    spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-005.md"
+    tests: []
+    notes: ""
+
+  - id: LCY-006
+    section: "Event Hooks"
+    summary: "RemovalReason enum with all variants"
+    status: gap
+    spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-006.md"
+    tests: []
+    notes: ""
+
+  - id: LCY-007
+    section: "Persistence"
+    summary: "snapshot()/restore() with MempoolSnapshot"
+    status: gap
+    spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-007.md"
+    tests: []
+    notes: ""
+
+  - id: LCY-008
+    section: "Memory Pressure"
+    summary: "evict_lowest_percent() with descendant_score ordering"
+    status: gap
+    spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-008.md"
+    tests: []
+    notes: ""

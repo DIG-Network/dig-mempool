@@ -1,0 +1,68 @@
+domain_id: admission
+normative: NORMATIVE.md
+verification: VERIFICATION.md
+
+items:
+  - id: ADM-001
+    section: "Entry Point"
+    summary: "submit() entry point accepts SpendBundle + CoinRecords, returns Result<SubmitResult, MempoolError>"
+    status: gap
+    spec_ref: "docs/requirements/domains/admission/specs/ADM-001.md"
+    tests: []
+    notes: ""
+
+  - id: ADM-002
+    section: "Entry Point"
+    summary: "submit() calls dig_clvm::validate_spend_bundle() for CLVM dry-run + BLS verification"
+    status: gap
+    spec_ref: "docs/requirements/domains/admission/specs/ADM-002.md"
+    tests: []
+    notes: ""
+
+  - id: ADM-003
+    section: "Deduplication"
+    summary: "Dedup check via SpendBundle::name() against seen-cache before CLVM validation"
+    status: gap
+    spec_ref: "docs/requirements/domains/admission/specs/ADM-003.md"
+    tests: []
+    notes: ""
+
+  - id: ADM-004
+    section: "Fee and Cost Extraction"
+    summary: "Fee extraction from SpendResult.fee and RESERVE_FEE check"
+    status: gap
+    spec_ref: "docs/requirements/domains/admission/specs/ADM-004.md"
+    tests: []
+    notes: ""
+
+  - id: ADM-005
+    section: "Fee and Cost Extraction"
+    summary: "Virtual cost computation: cost + (num_spends * SPEND_PENALTY_COST)"
+    status: gap
+    spec_ref: "docs/requirements/domains/admission/specs/ADM-005.md"
+    tests: []
+    notes: ""
+
+  - id: ADM-006
+    section: "Timelock Resolution"
+    summary: "Timelock resolution - relative to absolute, impossible constraints, expiry, pending"
+    status: gap
+    spec_ref: "docs/requirements/domains/admission/specs/ADM-006.md"
+    tests: []
+    notes: ""
+
+  - id: ADM-007
+    section: "Flag Extraction"
+    summary: "Dedup/FF flag extraction from OwnedSpendConditions.flags"
+    status: gap
+    spec_ref: "docs/requirements/domains/admission/specs/ADM-007.md"
+    tests: []
+    notes: ""
+
+  - id: ADM-008
+    section: "Batch Submission"
+    summary: "submit_batch() validates concurrently (Phase 1), inserts sequentially (Phase 2)"
+    status: gap
+    spec_ref: "docs/requirements/domains/admission/specs/ADM-008.md"
+    tests: []
+    notes: ""

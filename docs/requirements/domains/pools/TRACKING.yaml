@@ -1,0 +1,84 @@
+domain_id: pools
+normative: NORMATIVE.md
+verification: VERIFICATION.md
+
+items:
+  - id: POL-001
+    section: "Active Pool"
+    summary: "Active pool storage with HashMap and coin_index"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-001.md"
+    tests: []
+    notes: ""
+
+  - id: POL-002
+    section: "Active Pool"
+    summary: "Active pool capacity management and eviction"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-002.md"
+    tests: []
+    notes: ""
+
+  - id: POL-003
+    section: "Active Pool"
+    summary: "Expiry protection during eviction"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-003.md"
+    tests: []
+    notes: ""
+
+  - id: POL-004
+    section: "Pending Pool"
+    summary: "Pending pool with count and cost limits"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-004.md"
+    tests: []
+    notes: ""
+
+  - id: POL-005
+    section: "Pending Pool"
+    summary: "Pending pool deduplication via pending_coin_index"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-005.md"
+    tests: []
+    notes: ""
+
+  - id: POL-006
+    section: "Conflict Cache"
+    summary: "Conflict cache with count and cost limits"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-006.md"
+    tests: []
+    notes: ""
+
+  - id: POL-007
+    section: "Seen Cache"
+    summary: "LRU seen cache for DoS protection"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-007.md"
+    tests: []
+    notes: ""
+
+  - id: POL-008
+    section: "Auxiliary Indices"
+    summary: "Identical spend dedup index for cost adjustment"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-008.md"
+    tests: []
+    notes: ""
+
+  - id: POL-009
+    section: "Auxiliary Indices"
+    summary: "Singleton tracking index for chain ordering"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-009.md"
+    tests: []
+    notes: ""
+
+  - id: POL-010
+    section: "Concurrency"
+    summary: "RwLock per pool, Mutex for BLS, Send + Sync"
+    status: draft
+    spec_ref: "docs/requirements/domains/pools/specs/POL-010.md"
+    tests: []
+    notes: ""

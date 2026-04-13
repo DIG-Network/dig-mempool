@@ -1,0 +1,44 @@
+domain_id: fee_estimation
+normative: NORMATIVE.md
+verification: VERIFICATION.md
+
+items:
+  - id: FEE-001
+    section: "Minimum Fee Estimation"
+    summary: "3-tier estimate_min_fee() based on utilization"
+    status: gap
+    spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-001.md"
+    tests: []
+    notes: ""
+
+  - id: FEE-002
+    section: "Fee Tracker"
+    summary: "Bucket-based FeeTracker with rolling window"
+    status: gap
+    spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-002.md"
+    tests: []
+    notes: ""
+
+  - id: FEE-003
+    section: "Fee Rate Estimation"
+    summary: "estimate_fee_rate() with 85% confidence threshold"
+    status: gap
+    spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-003.md"
+    tests: []
+    notes: ""
+
+  - id: FEE-004
+    section: "Confirmed Block Recording"
+    summary: "record_confirmed_block() with exponential decay"
+    status: gap
+    spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-004.md"
+    tests: []
+    notes: ""
+
+  - id: FEE-005
+    section: "Persistence"
+    summary: "FeeEstimatorState serde serialization"
+    status: gap
+    spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-005.md"
+    tests: []
+    notes: ""
