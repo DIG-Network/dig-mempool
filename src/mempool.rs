@@ -35,11 +35,76 @@ use std::sync::{Arc, Mutex, RwLock};
 use dig_clvm::{BlsCache, Bytes32, SpendBundle};
 use dig_constants::NetworkConstants;
 
+use std::collections::VecDeque;
+
 use crate::config::MempoolConfig;
 use crate::error::MempoolError;
 use crate::item::MempoolItem;
 use crate::stats::MempoolStats;
 use crate::submit::SubmitResult;
+
+/// Simple bounded FIFO seen-cache for bundle ID deduplication.
+///
+/// Uses a `HashSet` for O(1) lookups and a `VecDeque` to track insertion
+/// order for FIFO eviction when capacity is exceeded. This is simpler than
+/// a true LRU but sufficient for the DoS protection use case — we only
+/// need to reject recent duplicates, not perfectly track access patterns.
+///
+/// # Capacity and Eviction
+///
+/// When `entries.len() >= max_size`, the oldest entry (front of `order`)
+/// is evicted before inserting the new one. This ensures memory is bounded.
+///
+/// See: [POL-007](docs/requirements/domains/pools/specs/POL-007.md)
+struct SeenCache {
+    /// O(1) lookup: is this bundle ID in the cache?
+    entries: HashSet<Bytes32>,
+    /// Insertion order for FIFO eviction (front = oldest).
+    order: VecDeque<Bytes32>,
+    /// Maximum number of entries before eviction.
+    max_size: usize,
+}
+
+impl SeenCache {
+    /// Create a new empty seen-cache with the given capacity.
+    fn new(max_size: usize) -> Self {
+        Self {
+            entries: HashSet::with_capacity(max_size),
+            order: VecDeque::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    /// Check if a bundle ID is in the cache.
+    fn contains(&self, id: &Bytes32) -> bool {
+        self.entries.contains(id)
+    }
+
+    /// Insert a bundle ID into the cache.
+    /// If the cache is full, evicts the oldest entry (FIFO).
+    /// Returns true if the ID was newly inserted, false if already present.
+    fn insert(&mut self, id: Bytes32) -> bool {
+        if self.entries.contains(&id) {
+            return false; // Already in cache
+        }
+        // Evict oldest if at capacity
+        while self.entries.len() >= self.max_size && self.max_size > 0 {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(id);
+        self.order.push_back(id);
+        true
+    }
+
+    /// Clear all entries (used by Mempool::clear() for reorg recovery).
+    #[allow(dead_code)]
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+}
 
 // CoinRecord re-exported for get_mempool_coin_record return type.
 use dig_clvm::CoinRecord;
@@ -98,6 +163,22 @@ pub struct Mempool {
     /// From `chia-bls` via dig-clvm re-export.
     /// See: [ADM-002](docs/requirements/domains/admission/specs/ADM-002.md)
     bls_cache: Mutex<BlsCache>,
+
+    /// Seen-cache: LRU-bounded set of recently seen bundle IDs.
+    ///
+    /// Populated BEFORE CLVM validation as DoS protection — prevents
+    /// an attacker from forcing repeated expensive CLVM execution of
+    /// the same invalid bundle. Even failed submissions are cached.
+    ///
+    /// Capacity: `config.max_seen_cache_size` (default 10,000).
+    /// Eviction: Oldest entries evicted when full (FIFO, not true LRU
+    /// for simplicity — a proper LRU can be added later if needed).
+    ///
+    /// Chia equivalent: `MempoolManager.seen_bundle_hashes` at
+    /// [mempool_manager.py:298](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L298)
+    ///
+    /// See: [ADM-003](docs/requirements/domains/admission/specs/ADM-003.md)
+    seen_cache: RwLock<SeenCache>,
 }
 
 impl Mempool {
@@ -133,11 +214,13 @@ impl Mempool {
     /// assert_eq!(mempool.stats().max_cost, 1_000_000_000);
     /// ```
     pub fn with_config(constants: NetworkConstants, config: MempoolConfig) -> Self {
+        let seen_cache_size = config.max_seen_cache_size;
         Self {
             constants,
             config,
             active_count: RwLock::new(0),
             bls_cache: Mutex::new(BlsCache::default()),
+            seen_cache: RwLock::new(SeenCache::new(seen_cache_size)),
         }
     }
 
@@ -216,6 +299,40 @@ impl Mempool {
         current_height: u64,
         current_timestamp: u64,
     ) -> Result<SubmitResult, MempoolError> {
+        // ── Phase 0: Dedup check (ADM-003) ──
+        //
+        // Check if we've already seen this bundle ID. This runs BEFORE
+        // CLVM validation to prevent DoS via repeated submission of
+        // expensive-to-validate bundles. The bundle ID is added to the
+        // seen-cache immediately, even before validation — so invalid
+        // bundles are also cached and rejected quickly on retry.
+        //
+        // Chia L1 equivalent: seen_bundle_hashes at mempool_manager.py:298
+        // https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L298
+
+        let bundle_id = bundle.name();
+
+        {
+            // Read lock: check if already seen
+            let seen = self.seen_cache.read().unwrap();
+            if seen.contains(&bundle_id) {
+                return Err(MempoolError::AlreadySeen(bundle_id));
+            }
+        }
+        // TODO: Also check active_items, pending_items, conflict_cache (POL-001, POL-004, POL-006)
+
+        {
+            // Write lock: add to seen-cache BEFORE validation (DoS protection).
+            // Even if CLVM validation fails, the ID stays in the cache to
+            // prevent repeated validation of the same bad bundle.
+            let mut seen = self.seen_cache.write().unwrap();
+            // Re-check under write lock (another thread may have inserted)
+            if seen.contains(&bundle_id) {
+                return Err(MempoolError::AlreadySeen(bundle_id));
+            }
+            seen.insert(bundle_id);
+        }
+
         // ── Phase 1: Lock-free CLVM validation (ADM-002) ──
         //
         // This is the expensive step. It runs WITHOUT holding the mempool

@@ -22,7 +22,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 
 - [x] ADM-001 — `submit()` entry point signature
 - [x] ADM-002 — Internal CLVM validation via `dig_clvm::validate_spend_bundle()`
-- [ ] ADM-003 — Dedup check via `SpendBundle::name()` + seen-cache (DoS protection)
+- [x] ADM-003 — Dedup check via `SpendBundle::name()` + seen-cache (DoS protection)
 - [ ] ADM-004 — Fee extraction from `SpendResult.fee` + RESERVE_FEE check
 - [ ] ADM-005 — Virtual cost: `cost + (num_spends * SPEND_PENALTY_COST)`
 - [ ] ADM-006 — Timelock resolution (relative to absolute, impossible constraints, expiry, pending)
