@@ -6,10 +6,11 @@ items:
   - id: API-001
     section: "Construction"
     summary: "Mempool::new() and Mempool::with_config() constructors"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/crate_api/specs/API-001.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_api_001
+    notes: "Constructors, MempoolConfig with defaults and builder, MempoolStats, Send+Sync"
 
   - id: API-002
     section: "Core Types"
