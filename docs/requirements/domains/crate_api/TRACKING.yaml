@@ -60,10 +60,11 @@ items:
   - id: API-007
     section: "Extension Traits"
     summary: "AdmissionPolicy and BlockSelectionStrategy traits"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/crate_api/specs/API-007.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_api_007
+    notes: "AdmissionPolicy, BlockSelectionStrategy, MempoolEventHook (5 callbacks with defaults), RemovalReason (7 variants). All object-safe."
 
   - id: API-008
     section: "Query Methods"

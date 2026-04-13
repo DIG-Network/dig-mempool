@@ -59,6 +59,10 @@ mod stats;
 /// See: [API-005](docs/requirements/domains/crate_api/specs/API-005.md)
 mod submit;
 
+/// Extension traits: AdmissionPolicy, BlockSelectionStrategy, MempoolEventHook, RemovalReason.
+/// See: [API-007](docs/requirements/domains/crate_api/specs/API-007.md)
+pub mod traits;
+
 pub use config::{MempoolConfig, FPC_SCALE, MEMPOOL_BLOCK_BUFFER};
 pub use error::MempoolError;
 pub use item::{MempoolItem, SingletonLineageInfo};
