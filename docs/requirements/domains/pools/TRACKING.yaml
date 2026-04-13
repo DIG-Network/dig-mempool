@@ -110,10 +110,16 @@ items:
   - id: POL-007
     section: "Seen Cache"
     summary: "LRU seen cache for DoS protection"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-007.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_007_added_before_clvm_validation
+      - vv_req_pol_007_lru_evicts_oldest
+      - vv_req_pol_007_pending_pool_check_after_eviction
+      - vv_req_pol_007_conflict_cache_check
+      - vv_req_pol_007_clear_resets_seen_cache
+      - vv_req_pol_007_clear_resets_all_pools
+    notes: "Existing SeenCache (HashSet + VecDeque FIFO) is functionally LRU for seen-only access patterns. Added pending pool + conflict cache checks to submit() dedup block (after active pool check). Added clear() method clearing all four state components (active pool, pending pool, conflict cache, seen cache). ConflictCache::contains() helper added."
 
   - id: POL-008
     section: "Auxiliary Indices"

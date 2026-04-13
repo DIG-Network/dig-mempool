@@ -492,6 +492,10 @@ impl ConflictCache {
     fn len(&self) -> usize {
         self.cache.len()
     }
+
+    fn contains(&self, id: &Bytes32) -> bool {
+        self.cache.contains_key(id)
+    }
 }
 
 // CoinRecord re-exported for get_mempool_coin_record return type.
@@ -803,18 +807,31 @@ impl Mempool {
             seen.insert(bundle_id);
         }
 
-        // POL-001: Check active pool (fast rejection if bundle already active).
-        // This handles the rare case where the seen_cache has evicted a bundle ID
-        // that is still in the active pool. Without this check, a seen_cache miss
-        // would allow re-validation and double-insertion of an already-active bundle.
+        // POL-001 / POL-007: Check active pool, pending pool, and conflict cache.
         //
-        // Does NOT acquire the pool write lock — read-only check before CLVM.
-        // TOCTOU safety: Phase 2 re-checks under write lock before inserting.
+        // Handles the case where the seen_cache has evicted a bundle ID that is
+        // still in another pool. Without these checks, a seen_cache miss would
+        // allow re-validation and double-insertion of an already-present bundle.
         //
-        // TODO: Also check pending_items (POL-004) and conflict_cache (POL-006).
+        // Each check acquires a read lock independently. TOCTOU safety: Phase 2
+        // re-checks under the write lock before inserting into each pool.
+        //
+        // Chia L1: mempool_manager.py checks active pool at line ~560.
         {
             let pool = self.pool.read().unwrap();
             if pool.items.contains_key(&bundle_id) {
+                return Err(MempoolError::AlreadySeen(bundle_id));
+            }
+        }
+        {
+            let pending = self.pending.read().unwrap();
+            if pending.pending.contains_key(&bundle_id) {
+                return Err(MempoolError::AlreadySeen(bundle_id));
+            }
+        }
+        {
+            let conflict = self.conflict.read().unwrap();
+            if conflict.contains(&bundle_id) {
                 return Err(MempoolError::AlreadySeen(bundle_id));
             }
         }
@@ -1393,6 +1410,49 @@ impl Mempool {
     /// See: [POL-006](docs/requirements/domains/pools/specs/POL-006.md)
     pub fn drain_conflict(&self) -> Vec<SpendBundle> {
         self.conflict.write().unwrap().drain()
+    }
+
+    /// Clear all mempool state for reorg recovery.
+    ///
+    /// Drops all items from the active pool, pending pool, conflict cache, and
+    /// seen cache. After this call the mempool is in the same state as a newly
+    /// constructed one. Use when a chain reorganization invalidates the current
+    /// pool state.
+    ///
+    /// # Concurrency
+    ///
+    /// Acquires write locks on all four state components. Callers must not hold
+    /// any mempool read or write locks when calling this method.
+    ///
+    /// See: [LCY-004](docs/requirements/domains/lifecycle/specs/LCY-004.md)
+    pub fn clear(&self) {
+        // Active pool
+        {
+            let mut pool = self.pool.write().unwrap();
+            pool.items.clear();
+            pool.coin_index.clear();
+            pool.mempool_coins.clear();
+            pool.total_cost = 0;
+            pool.total_fees = 0;
+            pool.total_spends = 0;
+        }
+        // Pending pool
+        {
+            let mut pending = self.pending.write().unwrap();
+            pending.pending.clear();
+            pending.pending_coin_index.clear();
+            pending.pending_cost = 0;
+        }
+        // Conflict cache
+        {
+            let mut conflict = self.conflict.write().unwrap();
+            conflict.cache.clear();
+            conflict.total_cost = 0;
+        }
+        // Seen cache
+        {
+            self.seen_cache.write().unwrap().clear();
+        }
     }
 
     /// Look up a coin created by an active mempool item.
