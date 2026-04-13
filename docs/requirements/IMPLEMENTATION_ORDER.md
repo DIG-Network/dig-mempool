@@ -31,7 +31,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 
 ## Phase 2: Pool Management
 
-- [ ] POL-001 — Active pool storage (HashMap + coin_index)
+- [x] POL-001 — Active pool storage (HashMap + coin_index)
 - [ ] POL-002 — Active pool capacity management (evict by descendant_score)
 - [ ] POL-003 — Expiry protection (skip protected items during eviction)
 - [ ] POL-004 — Pending pool (separate HashMap, count + cost limits)

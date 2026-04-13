@@ -6,10 +6,25 @@ items:
   - id: POL-001
     section: "Active Pool"
     summary: "Active pool storage with HashMap and coin_index"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-001.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_001_empty_pool_get_returns_none
+      - vv_req_pol_001_empty_pool_contains_returns_false
+      - vv_req_pol_001_empty_pool_collection_queries
+      - vv_req_pol_001_get_returns_inserted_item
+      - vv_req_pol_001_contains_after_submit
+      - vv_req_pol_001_len_increments_on_submit
+      - vv_req_pol_001_active_items_returns_items
+      - vv_req_pol_001_active_bundle_ids_returns_ids
+      - vv_req_pol_001_stats_active_count
+      - vv_req_pol_001_stats_total_cost_nonzero
+      - vv_req_pol_001_arc_sharing
+      - vv_req_pol_001_removals_populated_for_coin_spend
+      - vv_req_pol_001_item_num_spends_correct
+      - vv_req_pol_001_item_height_added
+      - vv_req_pol_001_mempool_coin_creator_none_for_unknown
+    notes: "ActivePool struct with items/coin_index/mempool_coins HashMaps + virtual_cost/fee/spend accumulators. NIL_PUZZLE_HASH constant (sha256tree of Program::default()) enables coin-spend tests."
 
   - id: POL-002
     section: "Active Pool"
