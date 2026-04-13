@@ -55,11 +55,16 @@ mod mempool;
 /// See: [API-006](docs/requirements/domains/crate_api/specs/API-006.md)
 mod stats;
 
+/// Submission result types (Success / Pending).
+/// See: [API-005](docs/requirements/domains/crate_api/specs/API-005.md)
+mod submit;
+
 pub use config::{MempoolConfig, FPC_SCALE, MEMPOOL_BLOCK_BUFFER};
 pub use error::MempoolError;
 pub use item::{MempoolItem, SingletonLineageInfo};
 pub use mempool::Mempool;
 pub use stats::MempoolStats;
+pub use submit::SubmitResult;
 
 // Re-export key types from dig-clvm for convenience.
 // These are the Chia ecosystem types the mempool operates on.

@@ -42,10 +42,11 @@ items:
   - id: API-005
     section: "Result Types"
     summary: "SubmitResult enum with Success and Pending"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/crate_api/specs/API-005.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_api_005
+    notes: "Success + Pending{assert_height}, Debug+Clone+PartialEq, comprehensive doc comments"
 
   - id: API-006
     section: "Result Types"
