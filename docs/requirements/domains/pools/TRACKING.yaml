@@ -93,10 +93,19 @@ items:
   - id: POL-006
     section: "Conflict Cache"
     summary: "Conflict cache with count and cost limits"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-006.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_006_initial_state
+      - vv_req_pol_006_add_increments_count
+      - vv_req_pol_006_count_limit_enforced
+      - vv_req_pol_006_cost_limit_enforced
+      - vv_req_pol_006_duplicate_not_inserted
+      - vv_req_pol_006_drain_returns_all
+      - vv_req_pol_006_drain_clears_cache
+      - vv_req_pol_006_non_conflict_rejection_not_cached
+      - vv_req_pol_006_pending_rbf_not_cached
+    notes: "ConflictCache struct (HashMap<Bytes32, (SpendBundle, u64)> + total_cost accumulator). Separate RwLock. insert() enforces count/cost limits and deduplicates. drain() clears all entries. add_to_conflict_cache() public method (used by CFR-005 for RBF failure wiring and by tests). drain_conflict() public method (used by LCY-001 on_new_block). Full RBF integration test (bundle added after active-pool RBF failure) deferred to CFR-005."
 
   - id: POL-007
     section: "Seen Cache"
