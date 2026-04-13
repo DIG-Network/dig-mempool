@@ -89,6 +89,7 @@ pub struct RetryBundles {
 /// window with real confirmed data. See [FEE-004].
 ///
 /// [FEE-004]: docs/requirements/domains/fee_estimation/specs/FEE-004.md
+#[derive(Debug, Clone)]
 pub struct ConfirmedBundleInfo {
     /// CLVM execution cost of the confirmed bundle.
     pub cost: u64,

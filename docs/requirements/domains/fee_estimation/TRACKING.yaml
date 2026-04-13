@@ -15,26 +15,29 @@ items:
   - id: FEE-002
     section: "Fee Tracker"
     summary: "Bucket-based FeeTracker with rolling window"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-002.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_fee_002.rs
+    notes: "FeeTracker in src/fee/tracker.rs. 50 log-spaced buckets (MIN_FPC=1, MAX_FPC=10^18, range=18). VecDeque block_history bounded at window. f64 counters with 0.998 decay. Exposed via Mempool::fee_tracker_stats() -> FeeTrackerStats. 7 tests."
 
   - id: FEE-003
     section: "Fee Rate Estimation"
     summary: "estimate_fee_rate() with 85% confidence threshold"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-003.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_fee_003.rs
+    notes: "Implemented as Mempool::estimate_fee_rate(target_blocks: u32) -> Option<FeeRate>. Returns None when history < window/2. Scans buckets high-to-low for 85% threshold. Returns chia_protocol::FeeRate (mojos_per_clvm_cost = bucket.lower / FPC_SCALE). 8 tests."
 
   - id: FEE-004
     section: "Confirmed Block Recording"
     summary: "record_confirmed_block() with exponential decay"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-004.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_fee_004.rs
+    notes: "Implemented as Mempool::record_confirmed_block(height, bundles). Applies 0.998 decay per call before placing bundles. Default 1-block wait (ConfirmedBundleInfo has no blocks_waited). Wired into on_new_block() step 5. 8 tests."
 
   - id: FEE-005
     section: "Persistence"

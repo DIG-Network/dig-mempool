@@ -71,6 +71,10 @@ mod pools;
 /// See: [SEL-001..008](docs/requirements/domains/selection/)
 mod selection;
 
+/// Fee estimation: FeeTracker, BlockFeeData, FeeTrackerStats, estimate_fee_rate.
+/// See: [FEE-002..005](docs/requirements/domains/fee_estimation/)
+pub mod fee;
+
 /// Aggregate mempool statistics snapshot.
 /// See: [API-006](docs/requirements/domains/crate_api/specs/API-006.md)
 mod stats;
@@ -85,6 +89,7 @@ pub mod traits;
 
 pub use config::{MempoolConfig, FPC_SCALE, MEMPOOL_BLOCK_BUFFER};
 pub use error::MempoolError;
+pub use fee::{BlockFeeData, FeeTrackerStats};
 pub use item::{MempoolItem, SingletonLineageInfo};
 pub use mempool::Mempool;
 pub use stats::MempoolStats;
