@@ -90,7 +90,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 - [x] LCY-005 — MempoolEventHook trait (5 callbacks, called under write lock)
 - [x] LCY-006 — RemovalReason enum (7 variants)
 - [ ] LCY-007 — `snapshot()` / `restore()` persistence (MempoolSnapshot with serde)
-- [ ] LCY-008 — `evict_lowest_percent()` memory pressure eviction
+- [x] LCY-008 — `evict_lowest_percent()` memory pressure eviction
 
 ---
 

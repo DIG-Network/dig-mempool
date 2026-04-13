@@ -68,7 +68,8 @@ items:
   - id: LCY-008
     section: "Memory Pressure"
     summary: "evict_lowest_percent() with descendant_score ordering"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-008.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_lcy_008.rs
+    notes: "Implemented in Mempool::evict_lowest_percent (src/mempool.rs). Takes percent:u8 + current_height:u64. Sorts by descendant_score ascending, skips expiry-protected items, cascade-evicts dependents. Fires CapacityEviction + CascadeEvicted hooks. 8 tests."

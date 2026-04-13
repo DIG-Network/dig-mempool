@@ -1545,6 +1545,116 @@ impl Mempool {
         self.pool.write().unwrap().remove(bundle_id).is_some()
     }
 
+    /// Evict the lowest-value items to relieve memory pressure.
+    ///
+    /// Removes approximately `percent`% of the active pool's total virtual cost
+    /// by evicting items in ascending `descendant_score` order. Items within the
+    /// expiry protection window are skipped (they expire naturally via `on_new_block()`).
+    /// Cascade-evicts CPFP dependents of each evicted item.
+    ///
+    /// # Parameters
+    ///
+    /// - `percent`: Fraction of total cost to free (0–100). Values > 100 are treated as 100.
+    /// - `current_height`: Current block height (for expiry protection checks).
+    ///
+    /// # Behavior
+    ///
+    /// - `percent = 0`: no-op (nothing removed).
+    /// - `percent = 100`: evict all non-expiry-protected items.
+    /// - Fires `on_item_removed(CapacityEviction)` for primary evictions.
+    /// - Fires `on_item_removed(CascadeEvicted { parent_id })` for cascade evictions.
+    ///
+    /// See: [LCY-008](docs/requirements/domains/lifecycle/specs/LCY-008.md)
+    pub fn evict_lowest_percent(&self, percent: u8, current_height: u64) {
+        if percent == 0 {
+            return;
+        }
+        let percent = percent.min(100) as u64;
+
+        let mut removal_events: Vec<(Bytes32, RemovalReason)> = Vec::new();
+
+        {
+            let mut pool = self.pool.write().unwrap();
+            let target = pool.total_cost.saturating_mul(percent) / 100;
+            if target == 0 {
+                return;
+            }
+
+            // Sort items by descendant_score ascending (lowest value first).
+            let mut sorted: Vec<(u128, Bytes32)> = pool
+                .items
+                .values()
+                .map(|item| (item.descendant_score, item.spend_bundle_id))
+                .collect();
+            sorted.sort_by_key(|(score, _)| *score);
+
+            let protection_blocks = self.config.expiry_protection_blocks;
+            let mut cost_removed: u64 = 0;
+
+            for (_, bundle_id) in sorted {
+                if cost_removed >= target {
+                    break;
+                }
+
+                // Item may have been cascade-evicted by a previous iteration.
+                if !pool.items.contains_key(&bundle_id) {
+                    continue;
+                }
+
+                // Skip expiry-protected items.
+                if let Some(item) = pool.items.get(&bundle_id) {
+                    let protected = item.assert_before_height.map_or(false, |abh| {
+                        abh > current_height
+                            && abh <= current_height.saturating_add(protection_blocks)
+                    });
+                    if protected {
+                        continue;
+                    }
+                }
+
+                // Collect parent map before eviction for CascadeEvicted hooks.
+                let parent_map = collect_descendants_parent_map(&pool.dependents, &bundle_id);
+
+                // Pre-compute cost of this item + all its descendants before eviction.
+                let mut subtree_cost: u64 = 0;
+                {
+                    // Collect all IDs in subtree (root + descendants).
+                    let mut stack = vec![bundle_id];
+                    let mut visited = std::collections::HashSet::new();
+                    while let Some(id) = stack.pop() {
+                        if !visited.insert(id) {
+                            continue;
+                        }
+                        if let Some(item) = pool.items.get(&id) {
+                            subtree_cost = subtree_cost.saturating_add(item.virtual_cost);
+                        }
+                        if let Some(children) = pool.dependents.get(&id) {
+                            stack.extend(children.iter().copied());
+                        }
+                    }
+                }
+
+                let evicted = pool.cascade_evict(&bundle_id);
+                if let Some((root, dependents)) = evicted.split_last() {
+                    removal_events.push((*root, RemovalReason::CapacityEviction));
+                    for dep_id in dependents {
+                        let parent_id =
+                            parent_map.get(dep_id).copied().unwrap_or(*root);
+                        removal_events
+                            .push((*dep_id, RemovalReason::CascadeEvicted { parent_id }));
+                    }
+                }
+
+                cost_removed = cost_removed.saturating_add(subtree_cost);
+            }
+        }
+
+        // Fire hooks after releasing the write lock.
+        for (id, reason) in removal_events {
+            self.fire_hooks(|h| h.on_item_removed(&id, reason.clone()));
+        }
+    }
+
     /// Number of entries in the identical-spend dedup index.
     ///
     /// Each entry represents a unique (coin_id, sha256(solution)) pair that has
