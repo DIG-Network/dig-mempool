@@ -69,7 +69,8 @@ items:
   - id: API-008
     section: "Query Methods"
     summary: "All query methods on Mempool"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/crate_api/specs/API-008.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_api_008
+    notes: "14 query methods: get, contains, active_bundle_ids, pending_bundle_ids, active_items, dependents_of, ancestors_of, len, pending_len, conflict_len, is_empty, stats, get_mempool_coin_record, get_mempool_coin_creator. All stubs returning defaults; behavior in Phase 2."
