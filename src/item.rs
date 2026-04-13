@@ -39,6 +39,7 @@ use std::collections::HashSet;
 
 use dig_clvm::chia_consensus::owned_conditions::OwnedSpendBundleConditions;
 use dig_clvm::{Bytes32, Coin, SpendBundle};
+use serde::{Deserialize, Serialize};
 
 use crate::config::{FPC_SCALE, SPEND_PENALTY_COST};
 
@@ -56,7 +57,7 @@ use crate::config::{FPC_SCALE, SPEND_PENALTY_COST};
 /// `SingletonLayer::parse_puzzle()` from chia-sdk-driver.
 ///
 /// [mempool_item.py:18-22]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L18
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SingletonLineageInfo {
     /// The current unspent singleton coin ID.
     pub coin_id: Bytes32,
@@ -93,7 +94,7 @@ pub struct SingletonLineageInfo {
 /// - [`config::SPEND_PENALTY_COST`] — penalty per spend in virtual cost
 /// - [`config::FPC_SCALE`] — scaling factor for integer FPC arithmetic
 /// - [SPEC.md Section 2.2](../docs/resources/SPEC.md)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MempoolItem {
     // ── Identity ──
     /// The original spend bundle submitted by the caller.
@@ -134,6 +135,7 @@ pub struct MempoolItem {
     /// for determinism. Higher value = more attractive for block inclusion.
     ///
     /// [mempool_item.py:76-77]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L76
+    #[serde(with = "serde_u128_str")]
     pub fee_per_virtual_cost_scaled: u128,
 
     // ── Package Cost & Fee (CPFP) ──
@@ -150,6 +152,7 @@ pub struct MempoolItem {
     /// Package fee-per-virtual-cost, scaled.
     /// `(package_fee * FPC_SCALE) / package_virtual_cost`.
     /// This is the metric used by CPFP-aware block selection strategies.
+    #[serde(with = "serde_u128_str")]
     pub package_fee_per_virtual_cost_scaled: u128,
 
     // ── Descendant Score (Eviction) ──
@@ -158,6 +161,7 @@ pub struct MempoolItem {
     /// Updated when children are added or removed from the dependency graph.
     /// Used as sort key during capacity eviction (lowest score evicted first).
     /// See: [CPF-006](../docs/requirements/domains/cpfp/specs/CPF-006.md)
+    #[serde(with = "serde_u128_str")]
     pub descendant_score: u128,
 
     // ── State Deltas ──
@@ -182,6 +186,11 @@ pub struct MempoolItem {
     /// The mempool reads fields like `reserve_fee`, `removal_amount`,
     /// `addition_amount`, and per-spend `flags` (ELIGIBLE_FOR_DEDUP/FF).
     /// Type from chia-consensus (via dig-clvm re-export).
+    ///
+    /// Skipped during serialization/deserialization: conditions are only used
+    /// during admission (submit()) and are never read from stored items after
+    /// insertion. Restored items work correctly without this field.
+    #[serde(skip, default = "empty_conditions")]
     pub conditions: OwnedSpendBundleConditions,
 
     /// Number of coin spends in the bundle.
@@ -276,6 +285,29 @@ pub struct MempoolItem {
     pub dedup_keys: Vec<(Bytes32, Bytes32)>,
 }
 
+/// Default value for the skipped `conditions` field during deserialization.
+///
+/// Returns an empty `OwnedSpendBundleConditions` with all counters zeroed.
+/// Safe to use as a stub because `conditions` is only accessed during `submit()`
+/// (Phase 1 CLVM validation) and never read from stored items afterward.
+fn empty_conditions() -> OwnedSpendBundleConditions {
+    OwnedSpendBundleConditions {
+        spends: vec![],
+        reserve_fee: 0,
+        height_absolute: 0,
+        seconds_absolute: 0,
+        before_height_absolute: None,
+        before_seconds_absolute: None,
+        agg_sig_unsafe: vec![],
+        cost: 0,
+        removal_amount: 0,
+        addition_amount: 0,
+        validated_signature: false,
+        execution_cost: 0,
+        condition_cost: 0,
+    }
+}
+
 impl MempoolItem {
     /// Compute scaled fee-per-virtual-cost using integer arithmetic.
     ///
@@ -358,5 +390,23 @@ impl MempoolItem {
             effective_virtual_cost: virtual_cost,
             dedup_keys: vec![],
         }
+    }
+}
+
+/// Serialize/deserialize `u128` as a decimal string.
+///
+/// `serde_json` does not reliably round-trip `u128` values without the
+/// `arbitrary_precision` feature. Serializing as a decimal string is
+/// universally compatible and preserves full precision.
+mod serde_u128_str {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &u128, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&v.to_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u128, D::Error> {
+        let s = String::deserialize(d)?;
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
