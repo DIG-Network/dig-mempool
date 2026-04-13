@@ -35,7 +35,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use dig_clvm::{BlsCache, Bytes32, SpendBundle};
 use dig_constants::NetworkConstants;
 
-use crate::config::MempoolConfig;
+use crate::config::{MempoolConfig, FPC_SCALE};
 use crate::error::MempoolError;
 use crate::item::MempoolItem;
 use crate::pools::active::sha256_bytes;
@@ -1678,6 +1678,65 @@ impl Mempool {
             .dedup_index
             .get(&(*coin_id, *solution_hash))
             .copied()
+    }
+
+    // ── Fee Estimation ────────────────────────────────────────────────────
+
+    /// Estimate the minimum fee required for a transaction to be admitted
+    /// under current mempool conditions.
+    ///
+    /// Implements a 3-tier utilization system:
+    ///
+    /// | Utilization | Minimum Fee |
+    /// |-------------|-------------|
+    /// | < 80%       | 0           |
+    /// | 80-100%     | `virtual_cost * full_mempool_min_fpc_scaled / FPC_SCALE` |
+    /// | >= 100%     | `virtual_cost * (lowest_fpc + 1) / FPC_SCALE` |
+    ///
+    /// `virtual_cost = cost + (num_spends * config.spend_penalty_cost)`
+    ///
+    /// See: [FEE-001](docs/requirements/domains/fee_estimation/specs/FEE-001.md)
+    pub fn estimate_min_fee(&self, cost: u64, num_spends: usize) -> u64 {
+        let virtual_cost = MempoolItem::compute_virtual_cost(cost, num_spends);
+        if virtual_cost == 0 {
+            return 0;
+        }
+
+        let pool = self.pool.read().unwrap();
+        let total_cost = pool.total_cost;
+        let max_cost = self.config.max_total_cost;
+
+        if max_cost == 0 || pool.items.is_empty() {
+            return 0;
+        }
+
+        // Tier 1: < 80% utilization — no minimum fee required.
+        // Avoid floating point: total_cost / max_cost < 0.80
+        //   ↔ total_cost * 100 < max_cost * 80
+        //   ↔ total_cost * 10 < max_cost * 8
+        // Use u128 arithmetic to prevent overflow.
+        if (total_cost as u128) * 10 < (max_cost as u128) * 8 {
+            return 0;
+        }
+
+        // Tier 3: >= 100% utilization — must beat the lowest-FPC item.
+        if total_cost >= max_cost {
+            let lowest_fpc = pool
+                .items
+                .values()
+                .map(|i| i.fee_per_virtual_cost_scaled)
+                .min()
+                .unwrap_or(0);
+            let fee = (virtual_cost as u128).saturating_mul(lowest_fpc.saturating_add(1))
+                / FPC_SCALE;
+            return fee.min(u64::MAX as u128) as u64;
+        }
+
+        // Tier 2: 80-100% utilization — apply minimum FPC threshold.
+        let fee = (virtual_cost as u128)
+            .saturating_mul(self.config.full_mempool_min_fpc_scaled)
+            / FPC_SCALE;
+        fee.min(u64::MAX as u128) as u64
     }
 
     // ── Block Candidate Selection ────────────────────────────────────────

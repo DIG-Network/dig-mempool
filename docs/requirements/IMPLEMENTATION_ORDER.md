@@ -75,7 +75,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 
 ## Phase 6: Fee Estimation
 
-- [ ] FEE-001 — `estimate_min_fee()` 3-tier utilization system
+- [x] FEE-001 — `estimate_min_fee()` 3-tier utilization system
 - [ ] FEE-002 — FeeTracker bucket-based tracker (rolling window, log-spaced buckets)
 - [ ] FEE-003 — `estimate_fee_rate(target_blocks)` with 85% confidence
 - [ ] FEE-004 — `record_confirmed_block()` with exponential decay (0.998)
