@@ -47,9 +47,29 @@ mod error;
 /// See: [API-002](docs/requirements/domains/crate_api/specs/API-002.md)
 pub mod item;
 
+/// Admission pipeline: CLVM validation, timelock resolution, fee extraction.
+/// See: [ADM-001..008](docs/requirements/domains/admission/)
+mod admission;
+
+/// Conflict detection and Replace-by-Fee (RBF) rules.
+/// See: [CFR-001..006](docs/requirements/domains/conflict_resolution/)
+mod conflict;
+
+/// Child-Pays-For-Parent (CPFP) dependency tracking and cascade eviction.
+/// See: [CPF-001..008](docs/requirements/domains/cpfp/)
+mod cpfp;
+
 /// Core Mempool struct and constructors.
 /// See: [API-001](docs/requirements/domains/crate_api/specs/API-001.md)
 mod mempool;
+
+/// Pool storage: active pool, pending pool, conflict cache, seen cache.
+/// See: [POL-001..010](docs/requirements/domains/pools/)
+mod pools;
+
+/// Block candidate selection: greedy strategies + topological ordering.
+/// See: [SEL-001..008](docs/requirements/domains/selection/)
+mod selection;
 
 /// Aggregate mempool statistics snapshot.
 /// See: [API-006](docs/requirements/domains/crate_api/specs/API-006.md)

@@ -34,740 +34,18 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use dig_clvm::{BlsCache, Bytes32, SpendBundle};
 use dig_constants::NetworkConstants;
-use sha2::{Digest, Sha256};
-
-use std::collections::VecDeque;
 
 use crate::config::MempoolConfig;
 use crate::error::MempoolError;
 use crate::item::MempoolItem;
+use crate::pools::active::sha256_bytes;
+use crate::pools::{ActivePool, ConflictCache, PendingPool, SeenCache};
+use crate::selection::{
+    sel_002_is_selectable, sel_007_best, sel_008_topological_order, sel_greedy, SortStrategy,
+};
 use crate::stats::MempoolStats;
 use crate::submit::SubmitResult;
 
-/// Simple bounded FIFO seen-cache for bundle ID deduplication.
-///
-/// Uses a `HashSet` for O(1) lookups and a `VecDeque` to track insertion
-/// order for FIFO eviction when capacity is exceeded. This is simpler than
-/// a true LRU but sufficient for the DoS protection use case — we only
-/// need to reject recent duplicates, not perfectly track access patterns.
-///
-/// # Capacity and Eviction
-///
-/// When `entries.len() >= max_size`, the oldest entry (front of `order`)
-/// is evicted before inserting the new one. This ensures memory is bounded.
-///
-/// See: [POL-007](docs/requirements/domains/pools/specs/POL-007.md)
-struct SeenCache {
-    /// O(1) lookup: is this bundle ID in the cache?
-    entries: HashSet<Bytes32>,
-    /// Insertion order for FIFO eviction (front = oldest).
-    order: VecDeque<Bytes32>,
-    /// Maximum number of entries before eviction.
-    max_size: usize,
-}
-
-impl SeenCache {
-    /// Create a new empty seen-cache with the given capacity.
-    fn new(max_size: usize) -> Self {
-        Self {
-            entries: HashSet::with_capacity(max_size),
-            order: VecDeque::with_capacity(max_size),
-            max_size,
-        }
-    }
-
-    /// Check if a bundle ID is in the cache.
-    fn contains(&self, id: &Bytes32) -> bool {
-        self.entries.contains(id)
-    }
-
-    /// Insert a bundle ID into the cache.
-    /// If the cache is full, evicts the oldest entry (FIFO).
-    /// Returns true if the ID was newly inserted, false if already present.
-    fn insert(&mut self, id: Bytes32) -> bool {
-        if self.entries.contains(&id) {
-            return false; // Already in cache
-        }
-        // Evict oldest if at capacity
-        while self.entries.len() >= self.max_size && self.max_size > 0 {
-            if let Some(oldest) = self.order.pop_front() {
-                self.entries.remove(&oldest);
-            }
-        }
-        self.entries.insert(id);
-        self.order.push_back(id);
-        true
-    }
-
-    /// Clear all entries (used by Mempool::clear() for reorg recovery).
-    #[allow(dead_code)]
-    fn clear(&mut self) {
-        self.entries.clear();
-        self.order.clear();
-    }
-}
-
-/// Compute SHA-256 of arbitrary bytes, returning a `Bytes32`.
-///
-/// Used by POL-008 to hash CoinSpend solution bytes into dedup index keys.
-/// The dedup key is `(coin_id, sha256(solution_bytes))`.
-fn sha256_bytes(bytes: &[u8]) -> Bytes32 {
-    let hash = Sha256::digest(bytes);
-    let array: [u8; 32] = hash.into();
-    Bytes32::from(array)
-}
-
-/// Internal active pool state — protected by `Mempool::pool: RwLock<ActivePool>`.
-///
-/// Groups the three related HashMaps and running accumulators under a single
-/// RwLock. All modifications are atomic (all-or-nothing within the write lock),
-/// which prevents partial-update visibility to concurrent readers.
-///
-/// # Data Structures
-///
-/// - `items`: Primary O(1) item lookup by bundle ID.
-///   Chia L1 equivalent: `_items` dict at
-///   [mempool.py:151](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L151)
-/// - `coin_index`: O(1) conflict detection — maps each spent coin ID to the bundle
-///   that spends it. Chia L1: `spends` SQL table at
-///   [mempool.py:146-149](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L146)
-/// - `mempool_coins`: O(1) CPFP resolution — maps each created coin ID to the bundle
-///   that created it. dig-mempool extension (not present in Chia L1).
-///
-/// See: [POL-001](docs/requirements/domains/pools/specs/POL-001.md)
-struct ActivePool {
-    /// Primary store: bundle_id → Arc<MempoolItem>.
-    ///
-    /// `Arc` enables zero-copy sharing — callers hold references that remain
-    /// valid even after the item is removed from the pool. All CRUD on the
-    /// active pool goes through `insert()` and `remove()`.
-    items: HashMap<Bytes32, Arc<MempoolItem>>,
-
-    /// Conflict detection index: spent_coin_id → spending bundle_id.
-    ///
-    /// Populated on every `insert()`; cleaned on every `remove()`.
-    /// Used by CFR-001 to detect coin conflicts in O(1): if a candidate
-    /// bundle tries to spend a coin already in `coin_index`, it conflicts.
-    coin_index: HashMap<Bytes32, Bytes32>,
-
-    /// CPFP resolution index: created_coin_id → creating bundle_id.
-    ///
-    /// Populated on every `insert()` for each coin in `item.additions`;
-    /// cleaned on every `remove()`. Used by CPF-001 to resolve CPFP parent
-    /// bundles in O(1): the caller provides a synthetic CoinRecord for each
-    /// coin returned here, enabling the CPFP child to reference parent output.
-    mempool_coins: HashMap<Bytes32, Bytes32>,
-
-    /// CPFP dependency graph (parent direction): bundle_id → set of parent bundle_ids.
-    ///
-    /// Populated when items with non-empty `depends_on` are inserted.
-    /// Cleaned on item removal. Used for cycle detection (CPF-004), package fee
-    /// computation (CPF-005), and descendant score updates (CPF-006).
-    ///
-    /// See: [CPF-002](docs/requirements/domains/cpfp/specs/CPF-002.md)
-    dependencies: HashMap<Bytes32, HashSet<Bytes32>>,
-
-    /// CPFP dependency graph (child direction): bundle_id → set of child bundle_ids.
-    ///
-    /// Maintained as the reverse of `dependencies`. Used for cascade eviction
-    /// (CPF-007) and descendant score recomputation (CPF-006).
-    ///
-    /// See: [CPF-002](docs/requirements/domains/cpfp/specs/CPF-002.md)
-    dependents: HashMap<Bytes32, HashSet<Bytes32>>,
-
-    /// Identical-spend dedup index: (coin_id, sha256(solution)) → cost-bearer bundle_id.
-    ///
-    /// Tracks which active bundle is the "cost bearer" for each unique
-    /// (coin, solution) pair. The cost bearer is the first admitted bundle
-    /// with that spend — its CLVM execution covers all subsequent identical
-    /// spends in the block. Subsequent bundles with the same spend are
-    /// "waiters" and get a `cost_saving` on their effective cost.
-    ///
-    /// Protected by the same pool `RwLock` as the other indexes.
-    ///
-    /// See: [POL-008](docs/requirements/domains/pools/specs/POL-008.md)
-    dedup_index: HashMap<(Bytes32, Bytes32), Bytes32>,
-
-    /// Dedup waiters: (coin_id, sha256(solution)) → ordered list of waiting bundle_ids.
-    ///
-    /// When the cost-bearer is removed, the first waiter is promoted to bearer.
-    /// Entries are cleaned up when bundles leave the pool.
-    dedup_waiters: HashMap<(Bytes32, Bytes32), Vec<Bytes32>>,
-
-    /// Running total of `item.virtual_cost` across all active items.
-    ///
-    /// Updated (+) on `insert()`, (-) on `remove()`. Used for capacity
-    /// management: `total_cost + new_item.virtual_cost > max_total_cost`
-    /// triggers eviction (POL-002).
-    total_cost: u64,
-
-    /// Running total of `item.fee` across all active items.
-    ///
-    /// Updated on insert/remove. Exposed via `stats().total_fees`.
-    total_fees: u64,
-
-    /// Running total of `item.num_spends` across all active items.
-    ///
-    /// Updated on insert/remove. Exposed via `stats().total_spend_count`.
-    total_spends: usize,
-}
-
-impl ActivePool {
-    /// Create an empty active pool with no items.
-    fn new() -> Self {
-        Self {
-            items: HashMap::new(),
-            coin_index: HashMap::new(),
-            mempool_coins: HashMap::new(),
-            dependencies: HashMap::new(),
-            dependents: HashMap::new(),
-            dedup_index: HashMap::new(),
-            dedup_waiters: HashMap::new(),
-            total_cost: 0,
-            total_fees: 0,
-            total_spends: 0,
-        }
-    }
-
-    /// Insert an item into the active pool.
-    ///
-    /// Updates `items`, `coin_index` (for each removal), `mempool_coins`
-    /// (for each addition), and the running accumulators.
-    ///
-    /// # Preconditions (caller enforced)
-    ///
-    /// - No coin conflict: none of `item.removals` already in `coin_index`.
-    ///   (Checked by CFR-001 before this is called.)
-    /// - No duplicate: `item.spend_bundle_id` not already in `items`.
-    ///
-    /// # Complexity
-    ///
-    /// O(r + a) where r = `item.removals.len()` and a = `item.additions.len()`.
-    ///
-    /// Chia L1 equivalent: `Mempool.add_to_pool()` at
-    /// [mempool.py:273](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L273)
-    fn insert(&mut self, item: Arc<MempoolItem>) {
-        let id = item.spend_bundle_id;
-
-        // Register all spent coin IDs for O(1) conflict detection (CFR-001).
-        for &coin_id in &item.removals {
-            self.coin_index.insert(coin_id, id);
-        }
-
-        // Register all created coin IDs for O(1) CPFP resolution (CPF-001).
-        for coin in &item.additions {
-            self.mempool_coins.insert(coin.coin_id(), id);
-        }
-
-        // ── POL-008: Identical-spend dedup index ──
-        //
-        // For each dedup key (coin_id, sha256(solution)) in this item:
-        // - If no entry yet: this item is the cost bearer → insert into dedup_index.
-        // - If an entry already exists: this item is a waiter → append to dedup_waiters.
-        //
-        // dedup_keys is empty when eligible_for_dedup == false or dedup is disabled.
-        for key in &item.dedup_keys {
-            if self.dedup_index.contains_key(key) {
-                // Another bundle is the cost bearer; register this as a waiter.
-                self.dedup_waiters.entry(*key).or_default().push(id);
-            } else {
-                // First bundle for this key — becomes the cost bearer.
-                self.dedup_index.insert(*key, id);
-            }
-        }
-
-        // ── CPF-002: Insert CPFP dependency graph edges ──
-        //
-        // Register bidirectional edges for each direct parent. These edges
-        // are used for cascade eviction (CPF-007), descendant score updates
-        // (CPF-006), and ancestor traversal (CPF-005, CPF-008).
-        for &parent_id in &item.depends_on {
-            self.dependencies
-                .entry(id)
-                .or_default()
-                .insert(parent_id);
-            self.dependents
-                .entry(parent_id)
-                .or_default()
-                .insert(id);
-        }
-
-        // Update running accumulators (used for capacity management + stats).
-        self.total_cost = self.total_cost.saturating_add(item.virtual_cost);
-        self.total_fees = self.total_fees.saturating_add(item.fee);
-        self.total_spends = self.total_spends.saturating_add(item.num_spends);
-
-        self.items.insert(id, item);
-    }
-
-    /// Remove an item from the active pool by bundle ID.
-    ///
-    /// Cleans up `coin_index`, `mempool_coins`, and decrements accumulators.
-    /// Returns the removed `Arc<MempoolItem>`, or `None` if not found.
-    ///
-    /// Called by `on_new_block()` (LCY-001) and capacity eviction (POL-002).
-    ///
-    /// # Complexity
-    ///
-    /// O(r + a) where r = number of removals and a = number of additions.
-    fn remove(&mut self, bundle_id: &Bytes32) -> Option<Arc<MempoolItem>> {
-        let item = self.items.remove(bundle_id)?;
-
-        for &coin_id in &item.removals {
-            self.coin_index.remove(&coin_id);
-        }
-        for coin in &item.additions {
-            self.mempool_coins.remove(&coin.coin_id());
-        }
-
-        // ── POL-008: Dedup index cleanup and bearer re-assignment ──
-        //
-        // For each dedup key this item was involved with:
-        // - If it's the bearer: promote the first waiter (if any) to bearer,
-        //   or remove the key entirely if no waiters remain.
-        // - If it's a waiter: remove it from the waiters list for that key.
-        for key in &item.dedup_keys {
-            if self.dedup_index.get(key) == Some(bundle_id) {
-                // This item is the cost bearer — reassign.
-                let new_bearer = self
-                    .dedup_waiters
-                    .get_mut(key)
-                    .and_then(|w| if w.is_empty() { None } else { Some(w.remove(0)) });
-
-                match new_bearer {
-                    Some(new_id) => {
-                        self.dedup_index.insert(*key, new_id);
-                        // Clean up empty waiters list.
-                        if self.dedup_waiters.get(key).map_or(true, |w| w.is_empty()) {
-                            self.dedup_waiters.remove(key);
-                        }
-                    }
-                    None => {
-                        self.dedup_index.remove(key);
-                        self.dedup_waiters.remove(key);
-                    }
-                }
-            } else {
-                // This item is a waiter — remove it from the waiters list.
-                if let Some(waiters) = self.dedup_waiters.get_mut(key) {
-                    waiters.retain(|id| id != bundle_id);
-                    if waiters.is_empty() {
-                        self.dedup_waiters.remove(key);
-                    }
-                }
-            }
-        }
-
-        // ── CPF-002: Clean CPFP dependency graph edges ──
-        //
-        // Remove this item's entry from `dependencies` (its parents) and
-        // remove it from each parent's `dependents` set. After cleanup,
-        // recompute each remaining parent's `descendant_score` since one
-        // of their children is now gone.
-        //
-        // Also remove this item from `dependents` (it may have had children;
-        // those should have been cascade-evicted before this item is removed).
-        if let Some(parents) = self.dependencies.remove(bundle_id) {
-            for parent_id in &parents {
-                if let Some(children) = self.dependents.get_mut(parent_id) {
-                    children.remove(bundle_id);
-                    if children.is_empty() {
-                        self.dependents.remove(parent_id);
-                    }
-                }
-                // Recompute parent's descendant_score now that this child is gone.
-                self.recompute_descendant_score(parent_id);
-            }
-        }
-        self.dependents.remove(bundle_id);
-
-        self.total_cost = self.total_cost.saturating_sub(item.virtual_cost);
-        self.total_fees = self.total_fees.saturating_sub(item.fee);
-        self.total_spends = self.total_spends.saturating_sub(item.num_spends);
-
-        Some(item)
-    }
-
-    /// Recompute `descendant_score` for `bundle_id` from its remaining children.
-    ///
-    /// Called after a child is removed (CPF-006). Sets the score to
-    /// `max(own_fpc, max(child.package_fpc_scaled for child in dependents))`.
-    fn recompute_descendant_score(&mut self, bundle_id: &Bytes32) {
-        let children_max: u128 = self
-            .dependents
-            .get(bundle_id)
-            .map(|children| {
-                children
-                    .iter()
-                    .filter_map(|cid| self.items.get(cid))
-                    .map(|c| c.package_fee_per_virtual_cost_scaled)
-                    .max()
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
-
-        let own_fpc = match self.items.get(bundle_id) {
-            Some(i) => i.fee_per_virtual_cost_scaled,
-            None => return,
-        };
-        let new_score = own_fpc.max(children_max);
-
-        if let Some(existing) = self.items.get_mut(bundle_id) {
-            if existing.descendant_score != new_score {
-                let mut updated = (**existing).clone();
-                updated.descendant_score = new_score;
-                *existing = Arc::new(updated);
-            }
-        }
-    }
-
-    /// Walk ancestors of `new_bundle_id` and update `descendant_score` for each.
-    ///
-    /// Called after a new item is inserted (CPF-006). Uses early termination:
-    /// stops propagating along a path when the score is not improved.
-    fn update_descendant_scores_on_add(&mut self, new_bundle_id: &Bytes32) {
-        let pkg_fpc = match self.items.get(new_bundle_id) {
-            Some(i) => i.package_fee_per_virtual_cost_scaled,
-            None => return,
-        };
-
-        // Initial parents to visit.
-        let init_parents: Vec<Bytes32> = self
-            .dependencies
-            .get(new_bundle_id)
-            .into_iter()
-            .flatten()
-            .copied()
-            .collect();
-        if init_parents.is_empty() {
-            return;
-        }
-
-        let mut to_visit = init_parents;
-        let mut visited: HashSet<Bytes32> = HashSet::new();
-
-        while let Some(ancestor_id) = to_visit.pop() {
-            if !visited.insert(ancestor_id) {
-                continue;
-            }
-
-            let current_score = match self.items.get(&ancestor_id) {
-                Some(i) => i.descendant_score,
-                None => continue,
-            };
-
-            // Early termination: if the new child's package FPC doesn't improve
-            // this ancestor's score, it won't improve any grandparent's either.
-            if pkg_fpc <= current_score {
-                continue;
-            }
-
-            // Collect grandparents before mutating items (borrow split).
-            let grandparents: Vec<Bytes32> = self
-                .dependencies
-                .get(&ancestor_id)
-                .into_iter()
-                .flatten()
-                .copied()
-                .collect();
-
-            // Update this ancestor's score.
-            if let Some(existing) = self.items.get_mut(&ancestor_id) {
-                let mut updated = (**existing).clone();
-                updated.descendant_score = pkg_fpc;
-                *existing = Arc::new(updated);
-            }
-
-            to_visit.extend(grandparents);
-        }
-    }
-
-    /// Recursively evict `bundle_id` and all its transitive dependents.
-    ///
-    /// Children are evicted before parents (depth-first). Returns all evicted
-    /// bundle IDs. Called by CPF-007 (cascade eviction) and CFR-006 (RBF
-    /// replacement cascade).
-    fn cascade_evict(&mut self, bundle_id: &Bytes32) -> Vec<Bytes32> {
-        let mut evicted = Vec::new();
-        self.cascade_evict_inner(bundle_id, &mut evicted);
-        evicted
-    }
-
-    fn cascade_evict_inner(&mut self, bundle_id: &Bytes32, evicted: &mut Vec<Bytes32>) {
-        // Collect children first to avoid borrow conflicts during mutation.
-        let children: Vec<Bytes32> = self
-            .dependents
-            .get(bundle_id)
-            .into_iter()
-            .flatten()
-            .copied()
-            .collect();
-
-        // Recursively evict all children before the parent.
-        for child_id in children {
-            self.cascade_evict_inner(&child_id, evicted);
-        }
-
-        // Evict this item.
-        if self.remove(bundle_id).is_some() {
-            evicted.push(*bundle_id);
-        }
-    }
-
-    /// Evict lowest-`descendant_score` items to make room for `new_item`.
-    ///
-    /// Items are evicted in ascending `descendant_score` order (cheapest first).
-    /// Eviction stops as soon as enough capacity is freed. If the new item's
-    /// `fee_per_virtual_cost_scaled` is ≤ any evictable candidate's score, the
-    /// item cannot displace it and `MempoolFull` is returned.
-    ///
-    /// Items with `assert_before_height` within `expiry_protection_blocks` of
-    /// `current_height` are skipped (expiry protection — POL-003).
-    ///
-    /// # Chia L1 Correspondence
-    ///
-    /// Chia's `add_to_pool()` eviction loop at
-    /// [mempool.py:395](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L395)
-    ///
-    /// See: [POL-002](docs/requirements/domains/pools/specs/POL-002.md)
-    fn evict_for(
-        &mut self,
-        new_item: &Arc<MempoolItem>,
-        max_total_cost: u64,
-        current_height: u64,
-        expiry_protection_blocks: u64,
-    ) -> Result<(), MempoolError> {
-        // Fast path: new item alone exceeds total capacity — nothing to evict helps.
-        if new_item.virtual_cost > max_total_cost {
-            return Err(MempoolError::MempoolFull);
-        }
-
-        // Collect evictable candidates (not expiry-protected), sorted ASC by score.
-        // We snapshot IDs + scores now so the loop can mutate self.items via remove().
-        let mut candidates: Vec<(u128, Bytes32)> = self
-            .items
-            .values()
-            .filter(|item| {
-                !Self::is_expiry_protected(item, current_height, expiry_protection_blocks)
-            })
-            .map(|item| (item.descendant_score, item.spend_bundle_id))
-            .collect();
-        candidates.sort_by_key(|(score, _)| *score);
-
-        for (score, candidate_id) in &candidates {
-            // Enough space freed — stop evicting.
-            if self.total_cost.saturating_add(new_item.virtual_cost) <= max_total_cost {
-                break;
-            }
-            // New item can't beat this candidate — reject.
-            if new_item.fee_per_virtual_cost_scaled <= *score {
-                return Err(MempoolError::MempoolFull);
-            }
-            self.remove(candidate_id);
-        }
-
-        // Pass 2 (POL-003): if still not enough space and the new item is itself
-        // expiry-protected, it may also evict protected items with lower FPC.
-        if self.total_cost.saturating_add(new_item.virtual_cost) > max_total_cost
-            && Self::is_expiry_protected(new_item, current_height, expiry_protection_blocks)
-        {
-            let mut protected: Vec<(u128, Bytes32)> = self
-                .items
-                .values()
-                .filter(|item| {
-                    Self::is_expiry_protected(item, current_height, expiry_protection_blocks)
-                })
-                .map(|item| (item.descendant_score, item.spend_bundle_id))
-                .collect();
-            protected.sort_by_key(|(score, _)| *score);
-
-            for (score, candidate_id) in &protected {
-                if self.total_cost.saturating_add(new_item.virtual_cost) <= max_total_cost {
-                    break;
-                }
-                if new_item.fee_per_virtual_cost_scaled <= *score {
-                    return Err(MempoolError::MempoolFull);
-                }
-                self.remove(candidate_id);
-            }
-        }
-
-        // Final guard: did eviction free enough space?
-        if self.total_cost.saturating_add(new_item.virtual_cost) > max_total_cost {
-            return Err(MempoolError::MempoolFull);
-        }
-
-        Ok(())
-    }
-
-    /// Returns true if `item` is expiry-protected at `current_height`.
-    ///
-    /// An item is protected if it expires within `protection_blocks` blocks,
-    /// meaning evicting it now would deny it any chance of confirmation.
-    /// Protected items are skipped during capacity eviction.
-    ///
-    /// See: [POL-003](docs/requirements/domains/pools/specs/POL-003.md)
-    fn is_expiry_protected(
-        item: &MempoolItem,
-        current_height: u64,
-        protection_blocks: u64,
-    ) -> bool {
-        if let Some(abh) = item.assert_before_height {
-            return abh > current_height && abh <= current_height.saturating_add(protection_blocks);
-        }
-        false
-    }
-}
-
-// ── Pending Pool ──────────────────────────────────────────────────────────
-
-/// Pending pool: validated but future-timelocked items awaiting promotion.
-///
-/// Items land here when `assert_height > current_height` or
-/// `assert_seconds > current_timestamp`. They are returned for re-submission
-/// when `drain_pending()` is called (typically from `on_new_block()` — LCY-001).
-///
-/// See: [POL-004](docs/requirements/domains/pools/specs/POL-004.md)
-struct PendingPool {
-    /// Bundle ID → item.
-    pending: HashMap<Bytes32, Arc<MempoolItem>>,
-    /// Spent coin ID → bundle ID. Populated for pending-vs-pending conflict
-    /// detection (POL-005). Cleaned up on removal.
-    pending_coin_index: HashMap<Bytes32, Bytes32>,
-    /// Sum of all pending items' `virtual_cost`.
-    pending_cost: u64,
-}
-
-impl PendingPool {
-    fn new() -> Self {
-        Self {
-            pending: HashMap::new(),
-            pending_coin_index: HashMap::new(),
-            pending_cost: 0,
-        }
-    }
-
-    fn insert(&mut self, item: Arc<MempoolItem>) {
-        let id = item.spend_bundle_id;
-        for &coin_id in &item.removals {
-            self.pending_coin_index.insert(coin_id, id);
-        }
-        self.pending_cost = self.pending_cost.saturating_add(item.virtual_cost);
-        self.pending.insert(id, item);
-    }
-
-    fn remove(&mut self, bundle_id: &Bytes32) -> Option<Arc<MempoolItem>> {
-        let item = self.pending.remove(bundle_id)?;
-        for &coin_id in &item.removals {
-            self.pending_coin_index.remove(&coin_id);
-        }
-        self.pending_cost = self.pending_cost.saturating_sub(item.virtual_cost);
-        Some(item)
-    }
-
-    /// Drain all items whose timelocks are satisfied at `height` / `timestamp`.
-    ///
-    /// Returns the spend bundles for re-submission. Each bundle must be
-    /// re-validated with fresh coin records and current chain state.
-    fn drain(&mut self, height: u64, timestamp: u64) -> Vec<SpendBundle> {
-        let to_promote: Vec<Bytes32> = self
-            .pending
-            .values()
-            .filter(|item| {
-                let height_ok = item.assert_height.map_or(true, |h| h <= height);
-                let seconds_ok = item.assert_seconds.map_or(true, |s| s <= timestamp);
-                height_ok && seconds_ok
-            })
-            .map(|item| item.spend_bundle_id)
-            .collect();
-
-        to_promote
-            .iter()
-            .filter_map(|id| self.remove(id))
-            .map(|item| item.spend_bundle.clone())
-            .collect()
-    }
-}
-
-// ── Conflict Cache ────────────────────────────────────────────────────────
-
-/// Conflict cache: raw SpendBundles that lost active-pool RBF, stored for
-/// re-submission after the conflicting active item is confirmed (LCY-001).
-///
-/// Stores `SpendBundle` (not `MempoolItem`) because bundles need full
-/// re-validation on retry — coin records, timelocks, and fee thresholds
-/// all depend on chain state at the time of re-submission.
-///
-/// Capacity is bounded by `max_conflict_count` (count) and `max_conflict_cost`
-/// (aggregate estimated virtual cost). Insertions beyond either limit are
-/// silently dropped — no error is returned beyond the original rejection.
-///
-/// Chia L1 equivalent: `ConflictTxCache` at
-/// [pending_tx_cache.py:13](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/pending_tx_cache.py#L13)
-///
-/// See: [POL-006](docs/requirements/domains/pools/specs/POL-006.md)
-struct ConflictCache {
-    /// bundle_id → (spend_bundle, estimated_virtual_cost).
-    cache: HashMap<Bytes32, (SpendBundle, u64)>,
-    /// Aggregate estimated virtual cost of all cached bundles.
-    total_cost: u64,
-}
-
-impl ConflictCache {
-    fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-            total_cost: 0,
-        }
-    }
-
-    /// Insert a bundle into the conflict cache.
-    ///
-    /// Silently drops the bundle if the cache is at `max_count` or if adding
-    /// `estimated_cost` would push `total_cost` over `max_cost`. Also drops
-    /// if the bundle ID is already present.
-    ///
-    /// Returns `true` if inserted, `false` if silently dropped.
-    fn insert(
-        &mut self,
-        bundle: SpendBundle,
-        estimated_cost: u64,
-        max_count: usize,
-        max_cost: u64,
-    ) -> bool {
-        let id = bundle.name();
-        // Deduplicate by bundle ID
-        if self.cache.contains_key(&id) {
-            return false;
-        }
-        if self.cache.len() >= max_count {
-            return false;
-        }
-        if self.total_cost.saturating_add(estimated_cost) > max_cost {
-            return false;
-        }
-        self.total_cost = self.total_cost.saturating_add(estimated_cost);
-        self.cache.insert(id, (bundle, estimated_cost));
-        true
-    }
-
-    /// Drain all entries and return the raw SpendBundles.
-    ///
-    /// Resets `total_cost` to 0. Called by `on_new_block()` (LCY-001) to
-    /// collect bundles for re-submission after a new block is confirmed.
-    fn drain(&mut self) -> Vec<SpendBundle> {
-        self.total_cost = 0;
-        self.cache.drain().map(|(_, (bundle, _))| bundle).collect()
-    }
-
-    fn len(&self) -> usize {
-        self.cache.len()
-    }
-
-    fn contains(&self, id: &Bytes32) -> bool {
-        self.cache.contains_key(id)
-    }
-}
 
 // CoinRecord re-exported for get_mempool_coin_record return type.
 use dig_clvm::CoinRecord;
@@ -2192,4 +1470,64 @@ impl Mempool {
             .get(&(*coin_id, *solution_hash))
             .copied()
     }
+
+    // ── Block Candidate Selection ────────────────────────────────────────
+
+    /// Select an ordered set of active items for block inclusion.
+    ///
+    /// Returns items in topological order (parents before children) with
+    /// fee-density descending within each layer.  Only items from the active
+    /// pool are considered; pending items are never returned.
+    ///
+    /// # Selection Algorithm
+    ///
+    /// 1. **SEL-002** Pre-filter: remove expired / future-timelocked items.
+    /// 2. **SEL-003..006** Run four greedy strategies (density, whale, compact, age).
+    /// 3. **SEL-007** Best-set comparator: highest fees → lowest cost → fewest bundles.
+    /// 4. **SEL-008** Topological ordering: layer 0 first, FPC-desc within layer.
+    ///
+    /// # Arguments
+    ///
+    /// - `max_block_cost`: virtual-cost budget for the block.
+    /// - `height`: current block height (for timelock evaluation).
+    /// - `timestamp`: current block timestamp (for timelock evaluation).
+    ///
+    /// See: [SEL-001](docs/requirements/domains/selection/specs/SEL-001.md)
+    pub fn select_for_block(
+        &self,
+        max_block_cost: u64,
+        height: u64,
+        timestamp: u64,
+    ) -> Vec<Arc<MempoolItem>> {
+        let pool = self.pool.read().unwrap();
+        let max_spends = self.config.max_spends_per_block;
+
+        // SEL-002: Pre-filter expired / future-timelocked items.
+        let candidates: Vec<Arc<MempoolItem>> = pool
+            .items
+            .values()
+            .filter(|item| sel_002_is_selectable(item, height, timestamp))
+            .cloned()
+            .collect();
+
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+
+        let candidates_set: HashSet<Bytes32> =
+            candidates.iter().map(|i| i.spend_bundle_id).collect();
+
+        // Run all four strategies.
+        let s1 = sel_greedy(&candidates, &pool, &candidates_set, max_block_cost, max_spends, SortStrategy::Density);
+        let s2 = sel_greedy(&candidates, &pool, &candidates_set, max_block_cost, max_spends, SortStrategy::Whale);
+        let s3 = sel_greedy(&candidates, &pool, &candidates_set, max_block_cost, max_spends, SortStrategy::Compact);
+        let s4 = sel_greedy(&candidates, &pool, &candidates_set, max_block_cost, max_spends, SortStrategy::Age);
+
+        // SEL-007: pick the best set.
+        let best = sel_007_best([&s1, &s2, &s3, &s4]);
+
+        // SEL-008: topological ordering.
+        sel_008_topological_order(best, &pool.dependencies)
+    }
 }
+
