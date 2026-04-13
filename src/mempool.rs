@@ -525,7 +525,32 @@ impl Mempool {
             });
         }
 
-        // TODO(ADM-007): Dedup/FF flag extraction from spend_result.conditions
+        // ── ADM-007: Dedup/FF flag extraction ──
+        //
+        // Read ELIGIBLE_FOR_DEDUP (0x1) and ELIGIBLE_FOR_FF (0x4) flags from
+        // each spend's conditions.flags. These are set by chia-consensus's
+        // MempoolVisitor during CLVM execution when MEMPOOL_MODE is active.
+        // The mempool reads these flags; it does NOT compute them.
+        //
+        // eligible_for_dedup: true only if ALL spends have the flag.
+        // singleton_lineage: populated if any spend has ELIGIBLE_FOR_FF and
+        // the caller has confirmed FF eligibility (not yet wired — needs
+        // SingletonLayer::parse_puzzle() from chia-sdk-driver).
+        //
+        // Chia L1: mempool_manager.py:662-663 (dedup flag check)
+        //          mempool_manager.py:666-667 (FF flag check)
+        let _eligible_for_dedup = spend_result
+            .conditions
+            .spends
+            .iter()
+            .all(|s| s.flags & 0x1 != 0)
+            || spend_result.conditions.spends.is_empty(); // vacuously true for 0 spends
+        let _any_ff_eligible = spend_result
+            .conditions
+            .spends
+            .iter()
+            .any(|s| s.flags & 0x4 != 0);
+        // TODO: If _any_ff_eligible, extract singleton lineage info
         // TODO(CFR-001): Conflict detection against coin_index
         // TODO(POL-002): Capacity management / eviction
         //
