@@ -29,10 +29,16 @@ items:
   - id: POL-002
     section: "Active Pool"
     summary: "Active pool capacity management and eviction"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-002.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_002_no_eviction_when_space_available
+      - vv_req_pol_002_lowest_score_evicted_first
+      - vv_req_pol_002_mempool_full_when_fpc_too_low
+      - vv_req_pol_002_mempool_full_empty_pool_too_small
+      - vv_req_pol_002_too_many_spends
+      - vv_req_pol_002_minimal_eviction
+    notes: "ActivePool::evict_for() sorts candidates ASC by descendant_score, evicts until space freed or FPC comparison fails. TooManySpends check precedes capacity check. is_expiry_protected() scaffolded for POL-003. Coin amount affects CLVM encoding cost — tests use amounts 1-127 (1-byte CLVM encoding) for exact virtual_cost comparisons."
 
   - id: POL-003
     section: "Active Pool"

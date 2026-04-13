@@ -226,7 +226,6 @@ impl ActivePool {
     /// # Complexity
     ///
     /// O(r + a) where r = number of removals and a = number of additions.
-    #[allow(dead_code)] // Will be called by POL-002 eviction and LCY-001
     fn remove(&mut self, bundle_id: &Bytes32) -> Option<Arc<MempoolItem>> {
         let item = self.items.remove(bundle_id)?;
 
@@ -242,6 +241,84 @@ impl ActivePool {
         self.total_spends = self.total_spends.saturating_sub(item.num_spends);
 
         Some(item)
+    }
+
+    /// Evict lowest-`descendant_score` items to make room for `new_item`.
+    ///
+    /// Items are evicted in ascending `descendant_score` order (cheapest first).
+    /// Eviction stops as soon as enough capacity is freed. If the new item's
+    /// `fee_per_virtual_cost_scaled` is ≤ any evictable candidate's score, the
+    /// item cannot displace it and `MempoolFull` is returned.
+    ///
+    /// Items with `assert_before_height` within `expiry_protection_blocks` of
+    /// `current_height` are skipped (expiry protection — POL-003).
+    ///
+    /// # Chia L1 Correspondence
+    ///
+    /// Chia's `add_to_pool()` eviction loop at
+    /// [mempool.py:395](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L395)
+    ///
+    /// See: [POL-002](docs/requirements/domains/pools/specs/POL-002.md)
+    fn evict_for(
+        &mut self,
+        new_item: &Arc<MempoolItem>,
+        max_total_cost: u64,
+        current_height: u64,
+        expiry_protection_blocks: u64,
+    ) -> Result<(), MempoolError> {
+        // Fast path: new item alone exceeds total capacity — nothing to evict helps.
+        if new_item.virtual_cost > max_total_cost {
+            return Err(MempoolError::MempoolFull);
+        }
+
+        // Collect evictable candidates (not expiry-protected), sorted ASC by score.
+        // We snapshot IDs + scores now so the loop can mutate self.items via remove().
+        let mut candidates: Vec<(u128, Bytes32)> = self
+            .items
+            .values()
+            .filter(|item| {
+                !Self::is_expiry_protected(item, current_height, expiry_protection_blocks)
+            })
+            .map(|item| (item.descendant_score, item.spend_bundle_id))
+            .collect();
+        candidates.sort_by_key(|(score, _)| *score);
+
+        for (score, candidate_id) in &candidates {
+            // Enough space freed — stop evicting.
+            if self.total_cost.saturating_add(new_item.virtual_cost) <= max_total_cost {
+                break;
+            }
+            // New item can't beat this candidate — reject.
+            if new_item.fee_per_virtual_cost_scaled <= *score {
+                return Err(MempoolError::MempoolFull);
+            }
+            self.remove(candidate_id);
+        }
+
+        // Final guard: did eviction free enough space?
+        if self.total_cost.saturating_add(new_item.virtual_cost) > max_total_cost {
+            return Err(MempoolError::MempoolFull);
+        }
+
+        Ok(())
+    }
+
+    /// Returns true if `item` is expiry-protected at `current_height`.
+    ///
+    /// An item is protected if it expires within `protection_blocks` blocks,
+    /// meaning evicting it now would deny it any chance of confirmation.
+    /// Protected items are skipped during capacity eviction.
+    ///
+    /// See: [POL-003](docs/requirements/domains/pools/specs/POL-003.md)
+    fn is_expiry_protected(
+        item: &MempoolItem,
+        current_height: u64,
+        protection_blocks: u64,
+    ) -> bool {
+        if let Some(abh) = item.assert_before_height {
+            return abh <= current_height.saturating_add(protection_blocks);
+        }
+        false
     }
 }
 
@@ -820,6 +897,36 @@ impl Mempool {
             if pool.items.contains_key(&bundle_id) {
                 return Ok(SubmitResult::Success);
             }
+
+            // ── POL-002: Spend count limit ──
+            //
+            // Hard cap on total active spends to bound block validation time.
+            // Not subject to eviction — reject immediately if the budget is exhausted.
+            //
+            // Chia L1: maximum_spends check at mempool.py:385-390
+            if pool.total_spends.saturating_add(num_spends) > self.config.max_spends_per_block {
+                return Err(MempoolError::TooManySpends {
+                    count: pool.total_spends.saturating_add(num_spends),
+                    max: self.config.max_spends_per_block,
+                });
+            }
+
+            // ── POL-002: Capacity management — evict if needed ──
+            //
+            // If the new item doesn't fit within max_total_cost, evict the
+            // lowest-descendant_score items until there is room. Returns
+            // MempoolFull if the new item can't displace any candidate.
+            //
+            // Chia L1 equivalent: add_to_pool() eviction loop at mempool.py:395
+            if pool.total_cost.saturating_add(virtual_cost) > self.config.max_total_cost {
+                pool.evict_for(
+                    &item,
+                    self.config.max_total_cost,
+                    current_height,
+                    self.config.expiry_protection_blocks,
+                )?;
+            }
+
             pool.insert(item);
         }
 
