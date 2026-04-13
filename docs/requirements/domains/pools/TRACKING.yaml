@@ -77,10 +77,18 @@ items:
   - id: POL-005
     section: "Pending Pool"
     summary: "Pending pool deduplication via pending_coin_index"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-005.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_005_index_populated_on_insert
+      - vv_req_pol_005_conflict_detected
+      - vv_req_pol_005_rbf_succeeds
+      - vv_req_pol_005_rbf_fails_not_superset
+      - vv_req_pol_005_rbf_fails_fpc_too_low
+      - vv_req_pol_005_rbf_fails_fee_bump_too_low
+      - vv_req_pol_005_index_cleaned_on_promotion
+      - vv_req_pol_005_no_conflict_cache_for_pending
+    notes: "pending_coin_index (coin_id -> bundle_id) maintained for all pending items. Conflict detection in if-is_pending block of submit(): superset check, FPC check (aggregate conflicts), fee bump check (min_rbf_fee_bump). On success: evict conflicts then insert. Failed RBF returns error without touching conflict cache. get_pending_coin_spender() public method added. FPC test uses b1.amount=100 (high FPC) vs b2=2-spend {same coin, coin_B(amount=1)} to guarantee FPC_b2 < FPC_b1."
 
   - id: POL-006
     section: "Conflict Cache"

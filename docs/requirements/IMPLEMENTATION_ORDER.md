@@ -35,7 +35,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 - [x] POL-002 — Active pool capacity management (evict by descendant_score)
 - [x] POL-003 — Expiry protection (skip protected items during eviction)
 - [x] POL-004 — Pending pool (separate HashMap, count + cost limits)
-- [ ] POL-005 — Pending pool deduplication (pending_coin_index, pending-vs-pending RBF)
+- [x] POL-005 — Pending pool deduplication (pending_coin_index, pending-vs-pending RBF)
 - [ ] POL-006 — Conflict cache (HashMap, count + cost limits)
 - [ ] POL-007 — Seen cache (LRU bounded set, pre-validation insertion)
 - [ ] POL-008 — Identical spend dedup index (cost adjustment tracking)
