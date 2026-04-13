@@ -31,9 +31,9 @@
 //! - [SPEC.md Section 2.2](../docs/resources/SPEC.md) — MempoolItem definition
 //! - [API-002](../docs/requirements/domains/crate_api/specs/API-002.md) — Requirement spec
 //!
-//! [mempool_item.py:45-120]: https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L45
-//! [mempool_item.py:25-42]: https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L25
-//! [mempool_item.py:76-77]: https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L76
+//! [mempool_item.py:45-120]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L45
+//! [mempool_item.py:25-42]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L25
+//! [mempool_item.py:76-77]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L76
 
 use std::collections::HashSet;
 
@@ -55,7 +55,7 @@ use crate::config::{FPC_SCALE, SPEND_PENALTY_COST};
 /// `MempoolVisitor`. The caller extracts lineage data using
 /// `SingletonLayer::parse_puzzle()` from chia-sdk-driver.
 ///
-/// [mempool_item.py:18-22]: https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L18
+/// [mempool_item.py:18-22]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L18
 #[derive(Debug, Clone)]
 pub struct SingletonLineageInfo {
     /// The current unspent singleton coin ID.
@@ -116,7 +116,7 @@ pub struct MempoolItem {
     /// Does NOT include byte cost (applied during block building, not mempool).
     /// Chia ref: `MempoolItem.cost` property at [mempool_item.py:84-85].
     ///
-    /// [mempool_item.py:84-85]: https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L84
+    /// [mempool_item.py:84-85]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L84
     pub cost: u64,
 
     /// Virtual cost: `cost + (num_spends * SPEND_PENALTY_COST)`.
@@ -124,7 +124,7 @@ pub struct MempoolItem {
     /// All fee-rate comparisons use virtual cost, not raw cost.
     /// Chia ref: `MempoolItem.virtual_cost` at [mempool_item.py:92-93].
     ///
-    /// [mempool_item.py:92-93]: https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L92
+    /// [mempool_item.py:92-93]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L92
     pub virtual_cost: u64,
 
     /// Fee-per-virtual-cost scaled by `FPC_SCALE` (10^12) for integer precision.
@@ -132,7 +132,7 @@ pub struct MempoolItem {
     /// Chia uses float division ([mempool_item.py:76-77]); we use integer math
     /// for determinism. Higher value = more attractive for block inclusion.
     ///
-    /// [mempool_item.py:76-77]: https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L76
+    /// [mempool_item.py:76-77]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L76
     pub fee_per_virtual_cost_scaled: u128,
 
     // ── Package Cost & Fee (CPFP) ──

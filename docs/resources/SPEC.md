@@ -16,7 +16,7 @@ The mempool does **not** perform:
 - **Block validation** (executing block generators, verifying block-level conditions)
 - Any consensus logic beyond mempool admission
 
-The design is derived from Chia's production mempool ([`chia/full_node/mempool.py`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py), [`chia/full_node/mempool_manager.py`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py)) with targeted improvements for L2 throughput and functionality.
+The design is derived from Chia's production mempool ([`chia/full_node/mempool.py`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py), [`chia/full_node/mempool_manager.py`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py)) with targeted improvements for L2 throughput and functionality.
 
 **Hard boundary:** Inputs = raw `SpendBundle` + `CoinRecord`s. Outputs = `Vec<Arc<MempoolItem>>`. Block production and block validation are outside this crate.
 
@@ -131,7 +131,7 @@ A `CoinId` is a `Bytes32` (32-byte hash). Throughout this spec, "coin ID" refers
 
 ### 2.2 MempoolItem
 
-A `MempoolItem` represents a validated, admitted transaction in the mempool. Items are immutable once created and stored internally as `Arc<MempoolItem>`. Corresponds to Chia's `MempoolItem` ([`mempool_item.py:45-120`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L45)) and `BundleCoinSpend` ([`mempool_item.py:25-42`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L25)), flattened into a single struct with CPFP extensions.
+A `MempoolItem` represents a validated, admitted transaction in the mempool. Items are immutable once created and stored internally as `Arc<MempoolItem>`. Corresponds to Chia's `MempoolItem` ([`mempool_item.py:45-120`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L45)) and `BundleCoinSpend` ([`mempool_item.py:25-42`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L25)), flattened into a single struct with CPFP extensions.
 
 ```rust
 pub struct MempoolItem {
@@ -242,7 +242,7 @@ pub struct MempoolItem {
 
 ### 2.3 SingletonLineageInfo
 
-Tracks the state of a singleton coin for fast-forward optimization. Extends Chia's `UnspentLineageInfo` ([`mempool_item.py:18-22`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L18)) with `launcher_id` and `inner_puzzle_hash` for puzzle-level singleton identification.
+Tracks the state of a singleton coin for fast-forward optimization. Extends Chia's `UnspentLineageInfo` ([`mempool_item.py:18-22`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L18)) with `launcher_id` and `inner_puzzle_hash` for puzzle-level singleton identification.
 
 ```rust
 pub struct SingletonLineageInfo {
@@ -261,7 +261,7 @@ pub struct SingletonLineageInfo {
 
 ### 2.4 MempoolConfig
 
-All tuneable parameters with sensible defaults. Builder pattern with `with_*` methods. Chia's equivalent is the `MempoolInfo` struct passed to the `Mempool` constructor ([`mempool.py:107`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L107)).
+All tuneable parameters with sensible defaults. Builder pattern with `with_*` methods. Chia's equivalent is the `MempoolInfo` struct passed to the `Mempool` constructor ([`mempool.py:107`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L107)).
 
 ```rust
 pub struct MempoolConfig {
@@ -865,7 +865,7 @@ pub enum MempoolError {
 
 ## 5. Admission Pipeline
 
-The admission pipeline corresponds to Chia's `MempoolManager.add_spend_bundle()` ([`mempool_manager.py:538-607`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L538)) and `validate_spend_bundle()` ([`mempool_manager.py:609-833`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L609)).
+The admission pipeline corresponds to Chia's `MempoolManager.add_spend_bundle()` ([`mempool_manager.py:538-607`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L538)) and `validate_spend_bundle()` ([`mempool_manager.py:609-833`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L609)).
 
 The pipeline is split into two phases for concurrency:
 - **Phase 1 (lock-free)**: CLVM validation via dig-clvm. Multiple submissions validate concurrently.
@@ -901,7 +901,7 @@ submit(bundle, coin_records, height, timestamp)
 
 ### 5.2 Deduplication (Phase 1)
 
-Compute bundle ID via `SpendBundle::name()` (chia-protocol). Check against seen-cache, active items, pending items, and conflict cache. If found, return `AlreadySeen`. Otherwise add to seen-cache **immediately** (DoS protection -- prevents repeated expensive CLVM validation of the same invalid bundle). Chia stores seen hashes in `MempoolManager.seen_bundle_hashes` ([`mempool_manager.py:298`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L298)) with the same pre-validation semantics.
+Compute bundle ID via `SpendBundle::name()` (chia-protocol). Check against seen-cache, active items, pending items, and conflict cache. If found, return `AlreadySeen`. Otherwise add to seen-cache **immediately** (DoS protection -- prevents repeated expensive CLVM validation of the same invalid bundle). Chia stores seen hashes in `MempoolManager.seen_bundle_hashes` ([`mempool_manager.py:298`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L298)) with the same pre-validation semantics.
 
 ### 5.3 CLVM Validation (Phase 1, lock-free)
 
@@ -938,11 +938,11 @@ On failure, `dig_clvm::ValidationError` is converted to `MempoolError::Validatio
 
 Read values from the validated `SpendResult`:
 - `fee = spend_result.fee` (= `conditions.removal_amount - conditions.addition_amount`, already computed by chia-consensus).
-- `cost = spend_result.conditions.cost` (= `execution_cost + condition_cost`). Condition costs use chia-consensus opcode constants (`chia_consensus::opcodes::AGG_SIG_COST = 1,200,000`, `CREATE_COIN_COST = 1,800,000`, etc. from [`condition_costs.py:6-15`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/consensus/condition_costs.py#L6)). These constants are NOT redefined by the mempool.
+- `cost = spend_result.conditions.cost` (= `execution_cost + condition_cost`). Condition costs use chia-consensus opcode constants (`chia_consensus::opcodes::AGG_SIG_COST = 1,200,000`, `CREATE_COIN_COST = 1,800,000`, etc. from [`condition_costs.py:6-15`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/consensus/condition_costs.py#L6)). These constants are NOT redefined by the mempool.
 - `additions = spend_result.additions` (coins created by `CREATE_COIN` conditions).
 - `removals` = coin IDs from `spend_result.removals` (via `Coin::coin_id()`).
 - `reserve_fee = spend_result.conditions.reserve_fee` (pre-summed by chia-consensus).
-- If `fee < reserve_fee` -> `InsufficientFee`. Chia: [`mempool_manager.py:728`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L728).
+- If `fee < reserve_fee` -> `InsufficientFee`. Chia: [`mempool_manager.py:728`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L728).
 
 ### 5.5 Cost and Virtual Cost (Phase 1)
 
@@ -950,29 +950,29 @@ Read values from the validated `SpendResult`:
 virtual_cost = cost + (num_spends * spend_penalty_cost)  // Chia: mempool_item.py:92-93
 fee_per_virtual_cost_scaled = (fee * FPC_SCALE) / virtual_cost
 ```
-If `cost > config.max_bundle_cost` -> `CostExceeded`. Chia: [`mempool_manager.py:733-734`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L733).
+If `cost > config.max_bundle_cost` -> `CostExceeded`. Chia: [`mempool_manager.py:733-734`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L733).
 
 ### 5.6 Timelock Resolution (Phase 1)
 
-Resolve relative timelocks to absolute values for storage, mirroring Chia's `compute_assert_height()` ([`mempool_manager.py:81-126`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L81)). The mempool reads per-spend timelock conditions from `spend_result.conditions.spends[*]`:
+Resolve relative timelocks to absolute values for storage, mirroring Chia's `compute_assert_height()` ([`mempool_manager.py:81-126`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L81)). The mempool reads per-spend timelock conditions from `spend_result.conditions.spends[*]`:
 
-- `height_relative`: resolved via `coin_record.confirmed_block_index + n` ([`mempool_manager.py:103`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L103)).
-- `seconds_relative`: resolved via `coin_record.timestamp + n` ([`mempool_manager.py:107`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L107)).
-- `before_height_relative` / `before_seconds_relative`: resolved and min'd ([`mempool_manager.py:110-124`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L110)).
+- `height_relative`: resolved via `coin_record.confirmed_block_index + n` ([`mempool_manager.py:103`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L103)).
+- `seconds_relative`: resolved via `coin_record.timestamp + n` ([`mempool_manager.py:107`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L107)).
+- `before_height_relative` / `before_seconds_relative`: resolved and min'd ([`mempool_manager.py:110-124`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L110)).
 - Bundle-level absolutes: `conditions.height_absolute`, `conditions.before_height_absolute`, etc.
 
-For CPFP mempool coin candidates (not in coin_records), use `confirmed_block_index = current_height` and `timestamp = current_timestamp`, matching Chia's ephemeral coin handling ([`mempool_manager.py:716-722`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L716)).
+For CPFP mempool coin candidates (not in coin_records), use `confirmed_block_index = current_height` and `timestamp = current_timestamp`, matching Chia's ephemeral coin handling ([`mempool_manager.py:716-722`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L716)).
 
-- Impossible constraints (`assert_before_height <= assert_height`) -> `ImpossibleTimelocks`. Chia: [`mempool_manager.py:791-796`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L791).
+- Impossible constraints (`assert_before_height <= assert_height`) -> `ImpossibleTimelocks`. Chia: [`mempool_manager.py:791-796`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L791).
 - Already expired -> `Expired`.
-- Future timelocked -> marked as pending. Chia routes to pending cache ([`mempool_manager.py:600-603`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L600)).
+- Future timelocked -> marked as pending. Chia routes to pending cache ([`mempool_manager.py:600-603`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L600)).
 
 ### 5.7 Dedup and Fast-Forward Flag Extraction (Phase 2)
 
 Both flags are **pre-computed by chia-consensus during the caller's CLVM execution** (via `MempoolVisitor` when `MEMPOOL_MODE` is set). The mempool reads them from `OwnedSpendConditions.flags` in the `SpendResult.conditions`; it does **not** run CLVM, check canonical encoding, or parse puzzle structures.
 
 **Identical Spend Dedup** (if `config.enable_identical_spend_dedup`):
-- Read `ELIGIBLE_FOR_DEDUP` (0x1) from `conditions.spends[*].flags`. Chia reads this at [`mempool_manager.py:662-663`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L662).
+- Read `ELIGIBLE_FOR_DEDUP` (0x1) from `conditions.spends[*].flags`. Chia reads this at [`mempool_manager.py:662-663`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L662).
 - Set `eligible_for_dedup = true` if ALL spends in the bundle have the flag.
 
 **Singleton Fast-Forward** (if `config.enable_singleton_ff`):
@@ -1007,19 +1007,19 @@ Intra-bundle announcements were already validated by dig-clvm during the caller'
 
 ### 5.10 Conflict Detection (Phase 2)
 
-Active pool only. Check `coin_index` for each removal. Collect conflicting bundle IDs. Mirrors Chia's `check_removals()` ([`mempool_manager.py:229-292`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L229)) which queries the `spends` table ([`mempool.py:290-299`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L290)).
+Active pool only. Check `coin_index` for each removal. Collect conflicting bundle IDs. Mirrors Chia's `check_removals()` ([`mempool_manager.py:229-292`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L229)) which queries the `spends` table ([`mempool.py:290-299`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L290)).
 
 ### 5.11 Replace-By-Fee (Phase 2)
 
-Three conditions, matching Chia's `can_replace()` ([`mempool_manager.py:1077-1126`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1077)):
+Three conditions, matching Chia's `can_replace()` ([`mempool_manager.py:1077-1126`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1077)):
 
-1. **Superset rule** ([`mempool_manager.py:1101-1109`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1101)): Every coin in conflicting items must be in new item.
-2. **Higher FPC** ([`mempool_manager.py:1119-1126`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1119)): `new_item.fee_per_cost > conflicting_fees / conflicting_cost`.
-3. **Minimum fee bump**: `new_item.fee >= conflicting_fees + MIN_RBF_FEE_BUMP`. Chia: `MEMPOOL_MIN_FEE_INCREASE` ([`mempool_manager.py:52`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L52)).
+1. **Superset rule** ([`mempool_manager.py:1101-1109`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1101)): Every coin in conflicting items must be in new item.
+2. **Higher FPC** ([`mempool_manager.py:1119-1126`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1119)): `new_item.fee_per_cost > conflicting_fees / conflicting_cost`.
+3. **Minimum fee bump**: `new_item.fee >= conflicting_fees + MIN_RBF_FEE_BUMP`. Chia: `MEMPOOL_MIN_FEE_INCREASE` ([`mempool_manager.py:52`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L52)).
 
 **RBF + CPFP interaction** (dig-mempool extension, not in Chia): When RBF replaces a parent, all its dependents are cascade-evicted. Cascade-evicted children do NOT go to the conflict cache.
 
-On RBF failure, add bundle to conflict cache (matching Chia's [`mempool_manager.py:595-599`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L595)) and return error.
+On RBF failure, add bundle to conflict cache (matching Chia's [`mempool_manager.py:595-599`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L595)) and return error.
 
 ### 5.12 Singleton Fast-Forward Chain Handling (Phase 2)
 
@@ -1031,15 +1031,15 @@ If `config.enable_singleton_ff` and `singleton_lineage` is provided:
 
 ### 5.13 Capacity Management (Phase 2)
 
-Corresponds to Chia's `add_to_pool()` ([`mempool.py:395-502`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L395)).
+Corresponds to Chia's `add_to_pool()` ([`mempool.py:395-502`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L395)).
 
 **Active pool**:
-- Sort by `descendant_score` ascending (improvement over Chia's raw `fee_per_cost` at [`mempool.py:448-458`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L448)).
-- Skip expiry-protected items. Chia: 48 blocks/900 seconds ([`mempool.py:406-442`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L406)).
+- Sort by `descendant_score` ascending (improvement over Chia's raw `fee_per_cost` at [`mempool.py:448-458`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L448)).
+- Skip expiry-protected items. Chia: 48 blocks/900 seconds ([`mempool.py:406-442`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L406)).
 - Cascade-evict dependents of removed parents (CPFP extension).
 
 **Pending pool**:
-- Check count and cost limits -> `PendingPoolFull`. Chia: [`pending_tx_cache.py:77-89`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/pending_tx_cache.py#L77).
+- Check count and cost limits -> `PendingPoolFull`. Chia: [`pending_tx_cache.py:77-89`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/pending_tx_cache.py#L77).
 
 ### 5.14 Identical Spend Dedup Cost Adjustment (Phase 2)
 
@@ -1087,19 +1087,19 @@ Announcements that are satisfied intra-bundle (within the same SpendBundle) are 
 **Note**: Cross-bundle announcements that reference non-ancestor bundles are not validated (they must be satisfied within the same block during block validation, not mempool admission). Only ancestor-to-descendant assertions are checked here as a correctness guarantee for the dependency chain.
 
 #### 5.4.4 Conflict Detection
-Active pool only. Check `coin_index` for each removal. Collect conflicting bundle IDs. This mirrors Chia's `check_removals()` ([`mempool_manager.py:229-292`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L229)) which queries the `spends` table ([`mempool.py:290-299`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L290)). Chia also handles FF and dedup special cases for conflicts ([`mempool_manager.py:270-288`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L270)).
+Active pool only. Check `coin_index` for each removal. Collect conflicting bundle IDs. This mirrors Chia's `check_removals()` ([`mempool_manager.py:229-292`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L229)) which queries the `spends` table ([`mempool.py:290-299`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L290)). Chia also handles FF and dedup special cases for conflicts ([`mempool_manager.py:270-288`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L270)).
 
 #### 5.4.5 Replace-By-Fee (RBF)
 
-Three conditions, matching Chia's `can_replace()` ([`mempool_manager.py:1077-1126`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1077)):
+Three conditions, matching Chia's `can_replace()` ([`mempool_manager.py:1077-1126`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1077)):
 
-1. **Superset rule** ([`mempool_manager.py:1101-1109`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1101)): Every coin in conflicting items must be in new item.
-2. **Higher FPC** ([`mempool_manager.py:1119-1126`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1119)): `new_item.fee_per_cost > conflicting_fees / conflicting_cost`.
-3. **Minimum fee bump**: `new_item.fee >= conflicting_fees + MIN_RBF_FEE_BUMP`. Chia: `MEMPOOL_MIN_FEE_INCREASE` ([`mempool_manager.py:52`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L52)).
+1. **Superset rule** ([`mempool_manager.py:1101-1109`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1101)): Every coin in conflicting items must be in new item.
+2. **Higher FPC** ([`mempool_manager.py:1119-1126`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1119)): `new_item.fee_per_cost > conflicting_fees / conflicting_cost`.
+3. **Minimum fee bump**: `new_item.fee >= conflicting_fees + MIN_RBF_FEE_BUMP`. Chia: `MEMPOOL_MIN_FEE_INCREASE` ([`mempool_manager.py:52`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L52)).
 
 **RBF + CPFP interaction** (dig-mempool extension, not in Chia): When RBF replaces a parent, all its dependents are cascade-evicted. The superset rule checks only the conflicting item's own removals, not its dependents' removals. Cascade-evicted children are irrecoverably invalid (their input coins no longer exist) and do NOT go to the conflict cache.
 
-On RBF failure, add bundle to conflict cache (if space permits, matching Chia's [`mempool_manager.py:595-599`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L595)) and return error.
+On RBF failure, add bundle to conflict cache (if space permits, matching Chia's [`mempool_manager.py:595-599`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L595)) and return error.
 
 #### 5.4.6 Singleton Fast-Forward
 
@@ -1113,17 +1113,17 @@ If `config.enable_singleton_ff` and the item has `singleton_lineage`:
 
 #### 5.4.7 Capacity Management
 
-Corresponds to Chia's `add_to_pool()` ([`mempool.py:395-502`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L395)).
+Corresponds to Chia's `add_to_pool()` ([`mempool.py:395-502`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L395)).
 
 **Active pool**:
-- Sort by `descendant_score` ascending (improvement over Chia's raw `fee_per_cost` sort at [`mempool.py:448-458`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L448)).
-- Skip expiry-protected items. Chia implements this as a separate pass for items expiring within 48 blocks/900 seconds ([`mempool.py:406-442`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L406)). dig-mempool uses a configurable `expiry_protection_blocks` window.
-- When admitting an expiring item, prefer evicting other expiring items with lower FPC. Matches Chia's expiring-item-specific eviction logic at [`mempool.py:416-442`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L416).
+- Sort by `descendant_score` ascending (improvement over Chia's raw `fee_per_cost` sort at [`mempool.py:448-458`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L448)).
+- Skip expiry-protected items. Chia implements this as a separate pass for items expiring within 48 blocks/900 seconds ([`mempool.py:406-442`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L406)). dig-mempool uses a configurable `expiry_protection_blocks` window.
+- When admitting an expiring item, prefer evicting other expiring items with lower FPC. Matches Chia's expiring-item-specific eviction logic at [`mempool.py:416-442`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L416).
 - Cascade-evict dependents of removed parents (dig-mempool CPFP extension, not in Chia).
 - Check `max_spends_per_block`: if total active spends + new spends > limit, reject with `TooManySpends`.
 
 **Pending pool**:
-- Check count and cost limits -> `PendingPoolFull`. Chia: `PendingTxCache` evicts highest-assert_height items first ([`pending_tx_cache.py:77-89`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/pending_tx_cache.py#L77)).
+- Check count and cost limits -> `PendingPoolFull`. Chia: `PendingTxCache` evicts highest-assert_height items first ([`pending_tx_cache.py:77-89`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/pending_tx_cache.py#L77)).
 
 #### 5.4.8 Identical Spend Deduplication
 
@@ -1171,7 +1171,7 @@ Fire `on_item_added` / `on_pending_added` event hooks.
 
 ## 6. Block Candidate Selection Algorithm
 
-Chia selects bundles via `create_bundle_from_mempool_items()` ([`mempool.py:583-615`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L583)) using a single `ORDER BY priority DESC, seq ASC` query ([`mempool.py:605`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L605)). dig-mempool uses a multi-strategy greedy approach with CPFP awareness for better optimization. The caller then passes selected bundles to `dig_clvm::build_block_generator()` (`dig-clvm/src/consensus/block.rs:29-115`), which calls `chia_consensus::solution_generator_backrefs()` for CLVM back-reference compression (matching Chia's [`mempool.py:540`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L540)).
+Chia selects bundles via `create_bundle_from_mempool_items()` ([`mempool.py:583-615`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L583)) using a single `ORDER BY priority DESC, seq ASC` query ([`mempool.py:605`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L605)). dig-mempool uses a multi-strategy greedy approach with CPFP awareness for better optimization. The caller then passes selected bundles to `dig_clvm::build_block_generator()` (`dig-clvm/src/consensus/block.rs:29-115`), which calls `chia_consensus::solution_generator_backrefs()` for CLVM back-reference compression (matching Chia's [`mempool.py:540`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L540)).
 
 ### 6.1 Pre-Selection Filtering
 
@@ -1241,7 +1241,7 @@ All sort orders include `height_added` and `bundle_id` as final tiebreakers.
 
 ## 7. Condition Handling
 
-All conditions are parsed by `dig-clvm` (which delegates to `chia-consensus`); the mempool reads the parsed results from `OwnedSpendBundleConditions`. Condition opcodes are defined in Chia's [`condition_opcodes.py`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/condition_opcodes.py). Condition costs are applied during CLVM execution per [`condition_costs.py:6-15`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/consensus/condition_costs.py#L6): `AGG_SIG = 1,200,000`, `CREATE_COIN = 1,800,000`, `MESSAGE_CONDITION_COST = 700`, `GENERIC_CONDITION_COST = 200`.
+All conditions are parsed by `dig-clvm` (which delegates to `chia-consensus`); the mempool reads the parsed results from `OwnedSpendBundleConditions`. Condition opcodes are defined in Chia's [`condition_opcodes.py`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/condition_opcodes.py). Condition costs are applied during CLVM execution per [`condition_costs.py:6-15`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/consensus/condition_costs.py#L6): `AGG_SIG = 1,200,000`, `CREATE_COIN = 1,800,000`, `MESSAGE_CONDITION_COST = 700`, `GENERIC_CONDITION_COST = 200`.
 
 ### 7.1 Coin Conditions
 
@@ -1294,7 +1294,7 @@ CPFP coins use `confirmed_block_index = current_height`, `timestamp = current_ti
 
 ## 8. Internal Data Structures
 
-Chia uses SQLite in-memory tables ([`mempool.py:108`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L108)) for the `tx` table ([`mempool.py:124-133`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L124)) and `spends` table ([`mempool.py:146-149`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L146)), plus a Python dict `_items` for heavy objects. dig-mempool uses HashMaps with `Arc` for the same purpose, avoiding SQLite overhead.
+Chia uses SQLite in-memory tables ([`mempool.py:108`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L108)) for the `tx` table ([`mempool.py:124-133`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L124)) and `spends` table ([`mempool.py:146-149`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L146)), plus a Python dict `_items` for heavy objects. dig-mempool uses HashMaps with `Arc` for the same purpose, avoiding SQLite overhead.
 
 ### 8.1 Active Pool
 
@@ -1370,15 +1370,15 @@ CLVM validation (Phase 1) runs without holding `pool_lock`, enabling concurrent 
 
 ### 9.1 New Block
 
-Corresponds to Chia's `MempoolManager.new_peak()` ([`mempool_manager.py:858-937`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L858)) and `Mempool.new_tx_block()` ([`mempool.py:329-345`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L329)).
+Corresponds to Chia's `MempoolManager.new_peak()` ([`mempool_manager.py:858-937`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L858)) and `Mempool.new_tx_block()` ([`mempool.py:329-345`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L329)).
 
 `on_new_block(height, timestamp, spent_coin_ids, confirmed_bundles)`:
 
-1. **Remove confirmed + cascade**: Remove items whose coins are in `spent_coin_ids`. Chia: iterates spent coins and evicts via `get_items_by_coin_id()` ([`mempool_manager.py:900-918`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L900)). dig-mempool additionally cascade-evicts CPFP dependents. Fire `on_item_removed(Confirmed)` and `on_item_removed(CascadeEvicted)`.
-2. **Remove expired + cascade**: Remove items past expiry. Chia: `new_tx_block()` SQL query `WHERE assert_before_seconds <= ? OR assert_before_height <= ?` ([`mempool.py:336-340`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L336)). Cascade-evict dependents.
-3. **Collect pending promotions**: Extract timelocked items now satisfiable. Chia: `_pending_cache.drain(new_peak.height)` ([`pending_tx_cache.py:91-108`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/pending_tx_cache.py#L91)).
-4. **Collect conflict retries**: Extract retryable conflict items. Chia: `_conflict_cache.drain()` ([`pending_tx_cache.py:40-44`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/pending_tx_cache.py#L40)).
-5. **Update fee estimator**: Feed `confirmed_bundles` to `FeeTracker`. Chia: `fee_estimator.new_block()` ([`bitcoin_fee_estimator.py:34-36`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/bitcoin_fee_estimator.py#L34)).
+1. **Remove confirmed + cascade**: Remove items whose coins are in `spent_coin_ids`. Chia: iterates spent coins and evicts via `get_items_by_coin_id()` ([`mempool_manager.py:900-918`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L900)). dig-mempool additionally cascade-evicts CPFP dependents. Fire `on_item_removed(Confirmed)` and `on_item_removed(CascadeEvicted)`.
+2. **Remove expired + cascade**: Remove items past expiry. Chia: `new_tx_block()` SQL query `WHERE assert_before_seconds <= ? OR assert_before_height <= ?` ([`mempool.py:336-340`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L336)). Cascade-evict dependents.
+3. **Collect pending promotions**: Extract timelocked items now satisfiable. Chia: `_pending_cache.drain(new_peak.height)` ([`pending_tx_cache.py:91-108`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/pending_tx_cache.py#L91)).
+4. **Collect conflict retries**: Extract retryable conflict items. Chia: `_conflict_cache.drain()` ([`pending_tx_cache.py:40-44`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/pending_tx_cache.py#L40)).
+5. **Update fee estimator**: Feed `confirmed_bundles` to `FeeTracker`. Chia: `fee_estimator.new_block()` ([`bitcoin_fee_estimator.py:34-36`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/bitcoin_fee_estimator.py#L34)).
 6. **Update tracking**: Set height and timestamp.
 7. **Return `RetryBundles`** with `conflict_retries`, `pending_promotions`, `cascade_evicted`. Chia re-validates drained items inline via `add_spend_bundle()` (under the lock); dig-mempool returns them for the caller to resubmit with fresh coin records.
 
@@ -1415,7 +1415,7 @@ When an item is removed:
 
 ### 10.1 Architecture
 
-The fee estimator uses a **bucket-based tracker** inspired by Bitcoin Core's `CBlockPolicyEstimator`, following Chia's implementation in `BitcoinFeeEstimator` ([`bitcoin_fee_estimator.py:14-78`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/bitcoin_fee_estimator.py#L14)) which wraps `FeeTracker` and `SmartFeeEstimator`. Chia's `FeeEstimatorInterface` protocol ([`fee_estimator_interface.py:11-33`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/fee_estimator_interface.py#L11)) defines the methods: `new_block`, `add_mempool_item`, `remove_mempool_item`, `estimate_fee_rate`. dig-mempool internalizes these as methods on the `FeeTracker` struct.
+The fee estimator uses a **bucket-based tracker** inspired by Bitcoin Core's `CBlockPolicyEstimator`, following Chia's implementation in `BitcoinFeeEstimator` ([`bitcoin_fee_estimator.py:14-78`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/bitcoin_fee_estimator.py#L14)) which wraps `FeeTracker` and `SmartFeeEstimator`. Chia's `FeeEstimatorInterface` protocol ([`fee_estimator_interface.py:11-33`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/fee_estimator_interface.py#L11)) defines the methods: `new_block`, `add_mempool_item`, `remove_mempool_item`, `estimate_fee_rate`. dig-mempool internalizes these as methods on the `FeeTracker` struct.
 
 ### 10.2 FeeTracker
 
@@ -1490,9 +1490,9 @@ pub struct FeeEstimatorState {
 
 ### 11.1 Overview
 
-A **singleton** is a coin that, when spent, creates exactly one child coin with a specific puzzle structure (singleton top-layer puzzle wrapping an inner puzzle). Singletons are identified by a `launcher_id` that remains constant across all versions. Chia implements this via `BundleCoinSpend.latest_singleton_lineage` ([`mempool_item.py:35-42`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L35)) and `SingletonFastForward` ([`eligible_coin_spends.py`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/eligible_coin_spends.py)).
+A **singleton** is a coin that, when spent, creates exactly one child coin with a specific puzzle structure (singleton top-layer puzzle wrapping an inner puzzle). Singletons are identified by a `launcher_id` that remains constant across all versions. Chia implements this via `BundleCoinSpend.latest_singleton_lineage` ([`mempool_item.py:35-42`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L35)) and `SingletonFastForward` ([`eligible_coin_spends.py`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/eligible_coin_spends.py)).
 
-Multiple sequential spends of the same singleton can be admitted to the mempool. The fast-forward optimization allows the block builder to include all of them in a single block by rebasing each spend's lineage proof to reference the previous spend's output. Chia handles FF rebasing during `new_peak()` ([`mempool_manager.py:921-937`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L921)) and block generation ([`mempool.py:596-600`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L596)).
+Multiple sequential spends of the same singleton can be admitted to the mempool. The fast-forward optimization allows the block builder to include all of them in a single block by rebasing each spend's lineage proof to reference the previous spend's output. Chia handles FF rebasing during `new_peak()` ([`mempool_manager.py:921-937`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L921)) and block generation ([`mempool.py:596-600`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L596)).
 
 ### 11.2 Detection (Delegated to Chia Crates)
 
@@ -1513,7 +1513,7 @@ No custom singleton puzzle parsing or hash comparison is implemented by the memp
 
 During Phase 2, if `singleton_lineage` is present:
 1. Check `singleton_spends[launcher_id]` for existing items.
-2. **Sequential update**: If the new item spends the coin created by the latest existing item for this launcher_id, append to the chain. This is not a conflict -- it's a sequential singleton update. Chia handles this via `check_removals()` FF special case ([`mempool_manager.py:274-276`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L274)).
+2. **Sequential update**: If the new item spends the coin created by the latest existing item for this launcher_id, append to the chain. This is not a conflict -- it's a sequential singleton update. Chia handles this via `check_removals()` FF special case ([`mempool_manager.py:274-276`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L274)).
 3. **Conflicting update**: If the new item spends an older version of the singleton (not the latest), treat as a conflict. Apply RBF rules. Only the latest chain is kept.
 4. **Fresh singleton**: If no existing items for this launcher_id, add normally.
 
@@ -1523,7 +1523,7 @@ During block selection, singleton chains are treated as dependency chains:
 - All items in a singleton chain must be included together or not at all.
 - They are ordered by lineage (oldest first) in the output.
 - The total cost is the sum of all items in the chain.
-- Chia uses `SingletonFastForward` tracker during block building ([`mempool.py:600`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L600)).
+- Chia uses `SingletonFastForward` tracker during block building ([`mempool.py:600`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L600)).
 
 ### 11.5 Lineage Rebasing (Outside Mempool Scope)
 
@@ -1541,15 +1541,15 @@ This separation ensures the mempool remains a pure state manager with no block c
 
 ### 12.1 Overview
 
-When multiple bundles contain a `CoinSpend` for the same coin with the same puzzle and solution, the CLVM result is identical. The block builder can run the puzzle once and reuse the result, reducing effective block cost. Chia implements this via `IdenticalSpendDedup` ([`eligible_coin_spends.py`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/eligible_coin_spends.py)) and the `ELIGIBLE_FOR_DEDUP` flag. Per-spend cost is tracked in `BundleCoinSpend.cost` ([`mempool_item.py:32`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L32)).
+When multiple bundles contain a `CoinSpend` for the same coin with the same puzzle and solution, the CLVM result is identical. The block builder can run the puzzle once and reuse the result, reducing effective block cost. Chia implements this via `IdenticalSpendDedup` ([`eligible_coin_spends.py`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/eligible_coin_spends.py)) and the `ELIGIBLE_FOR_DEDUP` flag. Per-spend cost is tracked in `BundleCoinSpend.cost` ([`mempool_item.py:32`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L32)).
 
 ### 12.2 Canonical Encoding Requirement
 
 For dedup eligibility, the solution must use canonical CLVM encoding. **This check is performed by chia-consensus** (via `MempoolVisitor`) during CLVM execution when `MEMPOOL_MODE` is set. The mempool does not implement its own canonical encoding check -- it reads the `ELIGIBLE_FOR_DEDUP` flag from `OwnedSpendConditions.flags`.
 
-The underlying canonical encoding rules enforced by chia-consensus (Chia reference: `is_clvm_canonical()` at [`mempool_manager.py:185-226`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L185)):
-- No back-references (`0xFE` byte) in the serialized CLVM tree ([`mempool_manager.py:208-209`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L208)).
-- All atoms use minimal-length encoding ([`mempool_manager.py:143-182`](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L143) `is_atom_canonical()`).
+The underlying canonical encoding rules enforced by chia-consensus (Chia reference: `is_clvm_canonical()` at [`mempool_manager.py:185-226`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L185)):
+- No back-references (`0xFE` byte) in the serialized CLVM tree ([`mempool_manager.py:208-209`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L208)).
+- All atoms use minimal-length encoding ([`mempool_manager.py:143-182`](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L143) `is_atom_canonical()`).
 
 Solutions with back-references could have different serialized forms that produce the same tree, making dedup unreliable. Canonical encoding guarantees byte-level equality implies semantic equality.
 
@@ -1758,96 +1758,96 @@ Consolidated index of Chia source references. Citations are also inlined through
 ### A.1 Core Mempool (chia/full_node/mempool.py)
 
 **Class and storage:**
-- `Mempool` class definition: [mempool.py:94](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L94). Uses SQLite in-memory database for indexed queries and a Python dict `_items: dict[bytes32, InternalMempoolItem]` for fast access to heavy objects (G2Element signatures).
-- Constructor: [mempool.py:107-113](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L107). Initializes `_db_conn`, `_items`, `_block_height`, `_timestamp`, `_total_fee`, `_total_cost`.
-- TX table schema: [mempool.py:124-133](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L124). Columns: `name BLOB, cost INT, fee INT, assert_height INT, assert_before_height INT, assert_before_seconds INT, fee_per_cost REAL, priority REAL, seq INTEGER PRIMARY KEY AUTOINCREMENT`.
-- Spends table: [mempool.py:146-149](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L146). Maps `coin_id BLOB` to `tx BLOB` (bundle hash). This is the **coin index** used for conflict detection. dig-mempool mirrors this with `coin_index: HashMap<Bytes32, Bytes32>`.
-- Indexes: [mempool.py:136-153](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L136). `name_idx`, `feerate`, `priority_idx`, `assert_before` (partial index on expiring items), `spend_by_coin`, `spend_by_bundle`.
+- `Mempool` class definition: [mempool.py:94](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L94). Uses SQLite in-memory database for indexed queries and a Python dict `_items: dict[bytes32, InternalMempoolItem]` for fast access to heavy objects (G2Element signatures).
+- Constructor: [mempool.py:107-113](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L107). Initializes `_db_conn`, `_items`, `_block_height`, `_timestamp`, `_total_fee`, `_total_cost`.
+- TX table schema: [mempool.py:124-133](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L124). Columns: `name BLOB, cost INT, fee INT, assert_height INT, assert_before_height INT, assert_before_seconds INT, fee_per_cost REAL, priority REAL, seq INTEGER PRIMARY KEY AUTOINCREMENT`.
+- Spends table: [mempool.py:146-149](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L146). Maps `coin_id BLOB` to `tx BLOB` (bundle hash). This is the **coin index** used for conflict detection. dig-mempool mirrors this with `coin_index: HashMap<Bytes32, Bytes32>`.
+- Indexes: [mempool.py:136-153](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L136). `name_idx`, `feerate`, `priority_idx`, `assert_before` (partial index on expiring items), `spend_by_coin`, `spend_by_bundle`.
 
 **Conflict detection:**
-- `get_items_by_coin_ids()`: [mempool.py:290-299](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L290). Queries the spends table: `SELECT * FROM tx WHERE name IN (SELECT tx FROM spends WHERE coin_id IN (...))`. This only searches **active** items, not pending or conflict caches. dig-mempool mirrors this: conflict detection is active-pool-only (Section 5.4.4).
+- `get_items_by_coin_ids()`: [mempool.py:290-299](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L290). Queries the spends table: `SELECT * FROM tx WHERE name IN (SELECT tx FROM spends WHERE coin_id IN (...))`. This only searches **active** items, not pending or conflict caches. dig-mempool mirrors this: conflict detection is active-pool-only (Section 5.4.4).
 
 **Fee rate minimum:**
-- `get_min_fee_rate()`: [mempool.py:301-327](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L301). Returns 0 if not at capacity. Otherwise iterates ascending `fee_per_cost` removing items until the new tx fits. dig-mempool's `estimate_min_fee()` uses the same concept with three tiers (Section 3.6).
-- `at_full_capacity()`: [mempool.py:509-514](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L509). `total_cost + cost > max_size_in_cost`.
+- `get_min_fee_rate()`: [mempool.py:301-327](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L301). Returns 0 if not at capacity. Otherwise iterates ascending `fee_per_cost` removing items until the new tx fits. dig-mempool's `estimate_min_fee()` uses the same concept with three tiers (Section 3.6).
+- `at_full_capacity()`: [mempool.py:509-514](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L509). `total_cost + cost > max_size_in_cost`.
 
 **Block expiry removal:**
-- `new_tx_block()`: [mempool.py:329-345](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L329). SQL: `SELECT name FROM tx WHERE assert_before_seconds <= ? OR assert_before_height <= ?`. Then calls `remove_from_pool()`. dig-mempool's `on_new_block()` step 2 mirrors this (Section 9.1).
+- `new_tx_block()`: [mempool.py:329-345](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L329). SQL: `SELECT name FROM tx WHERE assert_before_seconds <= ? OR assert_before_height <= ?`. Then calls `remove_from_pool()`. dig-mempool's `on_new_block()` step 2 mirrors this (Section 9.1).
 
 **Eviction on capacity:**
-- `add_to_pool()`: [mempool.py:395-502](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L395).
-  - Expiring item special handling: [mempool.py:406-442](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L406). Items expiring within 48 blocks (~15 min) or 900 seconds are evicted first, only if their `priority < new_item.fee_per_virtual_cost`. dig-mempool implements this as expiry protection (Section 5.4.7).
-  - General capacity eviction: [mempool.py:446-460](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L446). Uses SQL window function `SUM(cost) OVER (ORDER BY priority DESC, seq ASC)` to find lowest-priority items. dig-mempool sorts by `descendant_score` ascending (improvement over Chia).
-  - TX insertion: [mempool.py:462-492](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L462). Inserts into `tx` table and `spends` table. Note singleton FF spends are indexed by `latest_singleton_lineage.coin_id` ([mempool.py:488-489](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L488)).
+- `add_to_pool()`: [mempool.py:395-502](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L395).
+  - Expiring item special handling: [mempool.py:406-442](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L406). Items expiring within 48 blocks (~15 min) or 900 seconds are evicted first, only if their `priority < new_item.fee_per_virtual_cost`. dig-mempool implements this as expiry protection (Section 5.4.7).
+  - General capacity eviction: [mempool.py:446-460](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L446). Uses SQL window function `SUM(cost) OVER (ORDER BY priority DESC, seq ASC)` to find lowest-priority items. dig-mempool sorts by `descendant_score` ascending (improvement over Chia).
+  - TX insertion: [mempool.py:462-492](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L462). Inserts into `tx` table and `spends` table. Note singleton FF spends are indexed by `latest_singleton_lineage.coin_id` ([mempool.py:488-489](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L488)).
 
 **Block generator construction:**
-- `create_bundle_from_mempool_items()`: [mempool.py:583-615](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L583). Iterates `SELECT name, fee FROM tx ORDER BY priority DESC, seq ASC`, collecting items until cost or spend count limits are reached. Uses `IdenticalSpendDedup` ([mempool.py:596](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L596)) and `SingletonFastForward` ([mempool.py:600](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L600)).
-- `create_block_generator()`: [mempool.py:516-581](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L516). Calls `solution_generator_backrefs()` ([mempool.py:540](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L540)) for CLVM back-reference compression, then validates with `run_block_generator2()` ([mempool.py:551](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L551)). dig-mempool delegates this to `dig_clvm::build_block_generator()` which calls the same underlying functions.
+- `create_bundle_from_mempool_items()`: [mempool.py:583-615](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L583). Iterates `SELECT name, fee FROM tx ORDER BY priority DESC, seq ASC`, collecting items until cost or spend count limits are reached. Uses `IdenticalSpendDedup` ([mempool.py:596](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L596)) and `SingletonFastForward` ([mempool.py:600](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L600)).
+- `create_block_generator()`: [mempool.py:516-581](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L516). Calls `solution_generator_backrefs()` ([mempool.py:540](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L540)) for CLVM back-reference compression, then validates with `run_block_generator2()` ([mempool.py:551](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L551)). dig-mempool delegates this to `dig_clvm::build_block_generator()` which calls the same underlying functions.
 
 **Constants:**
-- `MAX_SKIPPED_ITEMS = 10`: [mempool.py:49](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L49).
-- `PRIORITY_TX_THRESHOLD = 3`: [mempool.py:54](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L54).
-- `MempoolRemoveReason` enum: [mempool.py:87-91](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool.py#L87). `CONFLICT`, `BLOCK_INCLUSION`, `POOL_FULL`, `EXPIRED`. dig-mempool's `RemovalReason` enum (Section 3.10) extends this with `ReplacedByFee`, `CascadeEvicted`, `ExplicitRemoval`, `Cleared`.
+- `MAX_SKIPPED_ITEMS = 10`: [mempool.py:49](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L49).
+- `PRIORITY_TX_THRESHOLD = 3`: [mempool.py:54](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L54).
+- `MempoolRemoveReason` enum: [mempool.py:87-91](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L87). `CONFLICT`, `BLOCK_INCLUSION`, `POOL_FULL`, `EXPIRED`. dig-mempool's `RemovalReason` enum (Section 3.10) extends this with `ReplacedByFee`, `CascadeEvicted`, `ExplicitRemoval`, `Cleared`.
 
 ### A.2 MempoolItem (chia/types/mempool_item.py)
 
-- `SPEND_PENALTY_COST = 500_000`: [mempool_item.py:14](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L14). dig-mempool uses the same constant (Section 2.5).
-- `UnspentLineageInfo`: [mempool_item.py:18-22](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L18). Fields: `coin_id`, `parent_id`, `parent_parent_id`. dig-mempool's `SingletonLineageInfo` (Section 2.3) extends this with `launcher_id` and `inner_puzzle_hash`.
-- `BundleCoinSpend`: [mempool_item.py:25-42](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L25). Per-spend data: `coin_spend`, `eligible_for_dedup`, `additions`, `cost`, `latest_singleton_lineage`. dig-mempool tracks dedup and FF eligibility as top-level flags on `MempoolItem`.
-- `MempoolItem`: [mempool_item.py:45-120](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L45). Frozen dataclass with `aggregated_signature`, `fee`, `conds`, `spend_bundle_name`, `height_added_to_mempool`, `assert_height`, `assert_before_height`, `assert_before_seconds`, `bundle_coin_spends`.
-- `virtual_cost` property: [mempool_item.py:92-93](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L92). `cost + num_spends * SPEND_PENALTY_COST`. dig-mempool computes this identically (Section 5.3.5).
-- `fee_per_virtual_cost` property: [mempool_item.py:76-77](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/types/mempool_item.py#L76). `fee / virtual_cost`. Used as `priority` in the SQL table. dig-mempool uses `fee_per_virtual_cost_scaled` (integer arithmetic with `FPC_SCALE`).
+- `SPEND_PENALTY_COST = 500_000`: [mempool_item.py:14](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L14). dig-mempool uses the same constant (Section 2.5).
+- `UnspentLineageInfo`: [mempool_item.py:18-22](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L18). Fields: `coin_id`, `parent_id`, `parent_parent_id`. dig-mempool's `SingletonLineageInfo` (Section 2.3) extends this with `launcher_id` and `inner_puzzle_hash`.
+- `BundleCoinSpend`: [mempool_item.py:25-42](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L25). Per-spend data: `coin_spend`, `eligible_for_dedup`, `additions`, `cost`, `latest_singleton_lineage`. dig-mempool tracks dedup and FF eligibility as top-level flags on `MempoolItem`.
+- `MempoolItem`: [mempool_item.py:45-120](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L45). Frozen dataclass with `aggregated_signature`, `fee`, `conds`, `spend_bundle_name`, `height_added_to_mempool`, `assert_height`, `assert_before_height`, `assert_before_seconds`, `bundle_coin_spends`.
+- `virtual_cost` property: [mempool_item.py:92-93](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L92). `cost + num_spends * SPEND_PENALTY_COST`. dig-mempool computes this identically (Section 5.3.5).
+- `fee_per_virtual_cost` property: [mempool_item.py:76-77](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/types/mempool_item.py#L76). `fee / virtual_cost`. Used as `priority` in the SQL table. dig-mempool uses `fee_per_virtual_cost_scaled` (integer arithmetic with `FPC_SCALE`).
 
 ### A.3 Mempool Manager (chia/full_node/mempool_manager.py)
 
 **RBF constant:**
-- `MEMPOOL_MIN_FEE_INCREASE = 10_000_000`: [mempool_manager.py:52](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L52). 0.00001 XCH. dig-mempool uses `MIN_RBF_FEE_BUMP = 10_000_000` (Section 2.5).
+- `MEMPOOL_MIN_FEE_INCREASE = 10_000_000`: [mempool_manager.py:52](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L52). 0.00001 XCH. dig-mempool uses `MIN_RBF_FEE_BUMP = 10_000_000` (Section 2.5).
 
 **Timelock resolution:**
-- `compute_assert_height()`: [mempool_manager.py:81-126](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L81). Resolves relative timelocks to absolute using `removal_coin_records[coin_id].confirmed_block_index` and `.timestamp`. Returns `TimelockConditions` with `assert_height`, `assert_seconds`, `assert_before_height`, `assert_before_seconds`. dig-mempool implements identical resolution logic (Section 5.3.6).
+- `compute_assert_height()`: [mempool_manager.py:81-126](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L81). Resolves relative timelocks to absolute using `removal_coin_records[coin_id].confirmed_block_index` and `.timestamp`. Returns `TimelockConditions` with `assert_height`, `assert_seconds`, `assert_before_height`, `assert_before_seconds`. dig-mempool implements identical resolution logic (Section 5.3.6).
 
 **Canonical encoding check:**
-- `is_clvm_canonical()`: [mempool_manager.py:185-226](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L185). Verifies no back-references (byte `0xFE`) and all atoms use minimal-length encoding. This check is performed by chia-consensus's MempoolVisitor during CLVM execution; dig-mempool reads the resulting `ELIGIBLE_FOR_DEDUP` flag (Section 5.3.7).
+- `is_clvm_canonical()`: [mempool_manager.py:185-226](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L185). Verifies no back-references (byte `0xFE`) and all atoms use minimal-length encoding. This check is performed by chia-consensus's MempoolVisitor during CLVM execution; dig-mempool reads the resulting `ELIGIBLE_FOR_DEDUP` flag (Section 5.3.7).
 
 **Conflict detection:**
-- `check_removals()`: [mempool_manager.py:229-292](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L229). For each coin, checks if `spent` (DOUBLE_SPEND), then queries mempool for conflicts. Handles FF and dedup special cases ([mempool_manager.py:270-288](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L270)). dig-mempool uses `coin_index` HashMap lookups for the same purpose.
+- `check_removals()`: [mempool_manager.py:229-292](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L229). For each coin, checks if `spent` (DOUBLE_SPEND), then queries mempool for conflicts. Handles FF and dedup special cases ([mempool_manager.py:270-288](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L270)). dig-mempool uses `coin_index` HashMap lookups for the same purpose.
 
 **Validation flow:**
-- `validate_spend_bundle()`: [mempool_manager.py:609-833](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L609). The main validation method. Key steps:
-  - Cost check: [mempool_manager.py:733-734](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L733). `cost > self.max_tx_clvm_cost`.
-  - Fee limit: [mempool_manager.py:740](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L740). `MEMPOOL_ITEM_FEE_LIMIT = 2^50`.
-  - Fee rate check at capacity: [mempool_manager.py:745-752](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L745). Only checked when `at_full_capacity()`.
-  - Puzzle hash verification: [mempool_manager.py:765-771](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L765).
-  - Timelock check via Rust: [mempool_manager.py:779-784](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L779). `check_time_locks()`.
-  - Impossible constraint detection: [mempool_manager.py:791-796](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L791). `assert_before_height <= assert_height`.
-  - Dedup eligibility + canonical check: [mempool_manager.py:662-663](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L662).
-  - FF eligibility + lineage lookup: [mempool_manager.py:666-675](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L666).
-  - Ephemeral coin handling: [mempool_manager.py:704-723](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L704). Creates synthetic `CoinRecord` with `confirmed_block_index = peak.height + 1` and `timestamp = peak.timestamp`. dig-mempool uses `current_height` and `current_timestamp` for the same purpose (Section 5.3.6).
+- `validate_spend_bundle()`: [mempool_manager.py:609-833](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L609). The main validation method. Key steps:
+  - Cost check: [mempool_manager.py:733-734](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L733). `cost > self.max_tx_clvm_cost`.
+  - Fee limit: [mempool_manager.py:740](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L740). `MEMPOOL_ITEM_FEE_LIMIT = 2^50`.
+  - Fee rate check at capacity: [mempool_manager.py:745-752](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L745). Only checked when `at_full_capacity()`.
+  - Puzzle hash verification: [mempool_manager.py:765-771](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L765).
+  - Timelock check via Rust: [mempool_manager.py:779-784](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L779). `check_time_locks()`.
+  - Impossible constraint detection: [mempool_manager.py:791-796](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L791). `assert_before_height <= assert_height`.
+  - Dedup eligibility + canonical check: [mempool_manager.py:662-663](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L662).
+  - FF eligibility + lineage lookup: [mempool_manager.py:666-675](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L666).
+  - Ephemeral coin handling: [mempool_manager.py:704-723](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L704). Creates synthetic `CoinRecord` with `confirmed_block_index = peak.height + 1` and `timestamp = peak.timestamp`. dig-mempool uses `current_height` and `current_timestamp` for the same purpose (Section 5.3.6).
 
 **Submission result routing:**
-- [mempool_manager.py:587-607](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L587). `MEMPOOL_CONFLICT` -> conflict cache; timelock failure with valid item -> pending cache; otherwise -> failed.
+- [mempool_manager.py:587-607](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L587). `MEMPOOL_CONFLICT` -> conflict cache; timelock failure with valid item -> pending cache; otherwise -> failed.
 
 **RBF rules:**
-- `can_replace()`: [mempool_manager.py:1077-1126](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1077).
-  - Superset rule: [mempool_manager.py:1101-1109](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1101). Every coin in conflicting items must be in new item.
-  - Fee-per-cost comparison: [mempool_manager.py:1119-1126](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1119). `new_item.fee_per_cost <= conflicting_fees / conflicting_cost`.
+- `can_replace()`: [mempool_manager.py:1077-1126](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1077).
+  - Superset rule: [mempool_manager.py:1101-1109](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1101). Every coin in conflicting items must be in new item.
+  - Fee-per-cost comparison: [mempool_manager.py:1119-1126](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1119). `new_item.fee_per_cost <= conflicting_fees / conflicting_cost`.
   - Minimum fee increase: `new_item.fee < conflicting_fees + MEMPOOL_MIN_FEE_INCREASE`.
-  - FF/dedup protection: [mempool_manager.py:1090-1113](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L1090). Cannot remove dedup/FF eligibility via RBF.
+  - FF/dedup protection: [mempool_manager.py:1090-1113](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L1090). Cannot remove dedup/FF eligibility via RBF.
 
 **New peak (block confirmation):**
-- `new_peak()`: [mempool_manager.py:858-937](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L858).
-  - Expiry removal: [mempool_manager.py:879](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L879). `mempool.new_tx_block()`.
-  - Fast path (optimization): [mempool_manager.py:887-937](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L887). Used when the new peak is a direct successor. Iterates `spent_coins`, evicts regular spends, defers FF spends for rebasing.
+- `new_peak()`: [mempool_manager.py:858-937](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L858).
+  - Expiry removal: [mempool_manager.py:879](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L879). `mempool.new_tx_block()`.
+  - Fast path (optimization): [mempool_manager.py:887-937](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L887). Used when the new peak is a direct successor. Iterates `spent_coins`, evicts regular spends, defers FF spends for rebasing.
   - Pending/conflict drain: drain pending cache items whose height is now satisfied and all conflict cache items, then re-validate via `add_spend_bundle()`.
 
 ### A.4 Pending and Conflict Caches (chia/full_node/pending_tx_cache.py)
 
-- `ConflictTxCache`: [pending_tx_cache.py:13-47](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/pending_tx_cache.py#L13). `_cache_max_size = 1000`, `_cache_max_total_cost`. FIFO eviction. `drain()` returns all items and clears. dig-mempool uses the same limits (Section 2.4).
-- `PendingTxCache`: [pending_tx_cache.py:50-111](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/pending_tx_cache.py#L50). `_cache_max_size = 3000`, organized by `assert_height` in `SortedDict`. `drain(up_to_height)` returns items whose height is satisfied. Eviction removes **highest** assert_height first (furthest future items are least useful). dig-mempool mirrors these limits (Section 2.4) and adds pending-vs-pending deduplication (Section 5.4.9).
+- `ConflictTxCache`: [pending_tx_cache.py:13-47](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/pending_tx_cache.py#L13). `_cache_max_size = 1000`, `_cache_max_total_cost`. FIFO eviction. `drain()` returns all items and clears. dig-mempool uses the same limits (Section 2.4).
+- `PendingTxCache`: [pending_tx_cache.py:50-111](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/pending_tx_cache.py#L50). `_cache_max_size = 3000`, organized by `assert_height` in `SortedDict`. `drain(up_to_height)` returns items whose height is satisfied. Eviction removes **highest** assert_height first (furthest future items are least useful). dig-mempool mirrors these limits (Section 2.4) and adds pending-vs-pending deduplication (Section 5.4.9).
 
 ### A.5 Condition Costs (chia/consensus/condition_costs.py)
 
-- [condition_costs.py:1-15](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/consensus/condition_costs.py#L1):
+- [condition_costs.py:1-15](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/consensus/condition_costs.py#L1):
   - `AGG_SIG = 1,200,000` -- G1 subgroup check + aggregated signature validation.
   - `CREATE_COIN = 1,800,000` -- per output coin.
   - `MESSAGE_CONDITION_COST = 700` -- SEND/RECEIVE_MESSAGE and CREATE/ASSERT_ANNOUNCEMENT.
@@ -1857,11 +1857,11 @@ These costs are applied during CLVM execution by `chia-consensus` and are includ
 
 ### A.6 Fee Estimation (chia/full_node/bitcoin_fee_estimator.py)
 
-- `BitcoinFeeEstimator`: [bitcoin_fee_estimator.py:14-78](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/bitcoin_fee_estimator.py#L14). Wraps `FeeTracker` and `SmartFeeEstimator`.
-  - `new_block()`: [bitcoin_fee_estimator.py:34-36](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/bitcoin_fee_estimator.py#L34). Calls `tracker.process_block()`.
-  - `add_mempool_item()` / `remove_mempool_item()`: [bitcoin_fee_estimator.py:38-44](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/bitcoin_fee_estimator.py#L38).
-  - `estimate_fee_rate()`: [bitcoin_fee_estimator.py:46-53](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/bitcoin_fee_estimator.py#L46). Delegates to `SmartFeeEstimator.get_estimate(time_offset_seconds)`.
-- `FeeEstimatorInterface` protocol: [fee_estimator_interface.py:11-33](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/fee_estimator_interface.py#L11). Methods: `new_block_height`, `new_block`, `add_mempool_item`, `remove_mempool_item`, `estimate_fee_rate`, `mempool_size`, `mempool_max_size`. dig-mempool internalizes this as the `FeeTracker` struct (Section 10).
+- `BitcoinFeeEstimator`: [bitcoin_fee_estimator.py:14-78](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/bitcoin_fee_estimator.py#L14). Wraps `FeeTracker` and `SmartFeeEstimator`.
+  - `new_block()`: [bitcoin_fee_estimator.py:34-36](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/bitcoin_fee_estimator.py#L34). Calls `tracker.process_block()`.
+  - `add_mempool_item()` / `remove_mempool_item()`: [bitcoin_fee_estimator.py:38-44](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/bitcoin_fee_estimator.py#L38).
+  - `estimate_fee_rate()`: [bitcoin_fee_estimator.py:46-53](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/bitcoin_fee_estimator.py#L46). Delegates to `SmartFeeEstimator.get_estimate(time_offset_seconds)`.
+- `FeeEstimatorInterface` protocol: [fee_estimator_interface.py:11-33](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/fee_estimator_interface.py#L11). Methods: `new_block_height`, `new_block`, `add_mempool_item`, `remove_mempool_item`, `estimate_fee_rate`, `mempool_size`, `mempool_max_size`. dig-mempool internalizes this as the `FeeTracker` struct (Section 10).
 
 ---
 
@@ -1948,7 +1948,7 @@ let ctx = ValidationContext {
 
 **Key field semantics:**
 - `coin_records`: Must contain a `CoinRecord` for every on-chain coin being spent. The mempool caller is responsible for loading these from the chain database. For CPFP coins, the caller uses `get_mempool_coin_record()` to synthesize records.
-- `ephemeral_coins`: Coin IDs that exist in the mempool but not on-chain. `validate_spend_bundle()` accepts these for existence checks ([validate.rs:57](https://github.com/DIG-Network/dig-clvm)) but does NOT create CoinRecords for them -- the caller must include synthetic records in `coin_records` if relative timelocks are present. Matches Chia's ephemeral coin handling at [mempool_manager.py:707-723](https://github.com/Chia-Network/chia-blockchain/blob/main/chia/full_node/mempool_manager.py#L707).
+- `ephemeral_coins`: Coin IDs that exist in the mempool but not on-chain. `validate_spend_bundle()` accepts these for existence checks ([validate.rs:57](https://github.com/DIG-Network/dig-clvm)) but does NOT create CoinRecords for them -- the caller must include synthetic records in `coin_records` if relative timelocks are present. Matches Chia's ephemeral coin handling at [mempool_manager.py:707-723](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L707).
 - `height` / `timestamp`: Passed to `chia-consensus` for condition evaluation. The mempool passes the current L2 block height and timestamp as received from the caller.
 
 ### B.4 validate_spend_bundle() (dig-clvm/src/consensus/validate.rs:30-167)
