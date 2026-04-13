@@ -418,6 +418,82 @@ impl PendingPool {
     }
 }
 
+// ── Conflict Cache ────────────────────────────────────────────────────────
+
+/// Conflict cache: raw SpendBundles that lost active-pool RBF, stored for
+/// re-submission after the conflicting active item is confirmed (LCY-001).
+///
+/// Stores `SpendBundle` (not `MempoolItem`) because bundles need full
+/// re-validation on retry — coin records, timelocks, and fee thresholds
+/// all depend on chain state at the time of re-submission.
+///
+/// Capacity is bounded by `max_conflict_count` (count) and `max_conflict_cost`
+/// (aggregate estimated virtual cost). Insertions beyond either limit are
+/// silently dropped — no error is returned beyond the original rejection.
+///
+/// Chia L1 equivalent: `ConflictTxCache` at
+/// [pending_tx_cache.py:13](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/pending_tx_cache.py#L13)
+///
+/// See: [POL-006](docs/requirements/domains/pools/specs/POL-006.md)
+struct ConflictCache {
+    /// bundle_id → (spend_bundle, estimated_virtual_cost).
+    cache: HashMap<Bytes32, (SpendBundle, u64)>,
+    /// Aggregate estimated virtual cost of all cached bundles.
+    total_cost: u64,
+}
+
+impl ConflictCache {
+    fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+            total_cost: 0,
+        }
+    }
+
+    /// Insert a bundle into the conflict cache.
+    ///
+    /// Silently drops the bundle if the cache is at `max_count` or if adding
+    /// `estimated_cost` would push `total_cost` over `max_cost`. Also drops
+    /// if the bundle ID is already present.
+    ///
+    /// Returns `true` if inserted, `false` if silently dropped.
+    fn insert(
+        &mut self,
+        bundle: SpendBundle,
+        estimated_cost: u64,
+        max_count: usize,
+        max_cost: u64,
+    ) -> bool {
+        let id = bundle.name();
+        // Deduplicate by bundle ID
+        if self.cache.contains_key(&id) {
+            return false;
+        }
+        if self.cache.len() >= max_count {
+            return false;
+        }
+        if self.total_cost.saturating_add(estimated_cost) > max_cost {
+            return false;
+        }
+        self.total_cost = self.total_cost.saturating_add(estimated_cost);
+        self.cache.insert(id, (bundle, estimated_cost));
+        true
+    }
+
+    /// Drain all entries and return the raw SpendBundles.
+    ///
+    /// Resets `total_cost` to 0. Called by `on_new_block()` (LCY-001) to
+    /// collect bundles for re-submission after a new block is confirmed.
+    fn drain(&mut self) -> Vec<SpendBundle> {
+        self.total_cost = 0;
+        self.cache.drain().map(|(_, (bundle, _))| bundle).collect()
+    }
+
+    fn len(&self) -> usize {
+        self.cache.len()
+    }
+}
+
 // CoinRecord re-exported for get_mempool_coin_record return type.
 use dig_clvm::CoinRecord;
 
@@ -502,6 +578,14 @@ pub struct Mempool {
     ///
     /// See: [POL-004](docs/requirements/domains/pools/specs/POL-004.md)
     pending: RwLock<PendingPool>,
+
+    /// Conflict cache: bundles that lost active-pool RBF, stored for retry.
+    ///
+    /// Protected by its own `RwLock` so reads (e.g., `conflict_len()`) don't
+    /// block active-pool writes and vice versa. Drained by `on_new_block()`.
+    ///
+    /// See: [POL-006](docs/requirements/domains/pools/specs/POL-006.md)
+    conflict: RwLock<ConflictCache>,
 }
 
 impl Mempool {
@@ -545,6 +629,7 @@ impl Mempool {
             bls_cache: Mutex::new(BlsCache::default()),
             seen_cache: RwLock::new(SeenCache::new(seen_cache_size)),
             pending: RwLock::new(PendingPool::new()),
+            conflict: RwLock::new(ConflictCache::new()),
         }
     }
 
@@ -616,11 +701,13 @@ impl Mempool {
             (pending.pending.len(), pending.pending_cost)
         };
 
+        let conflict_count = self.conflict.read().unwrap().len();
+
         MempoolStats {
             active_count,
             pending_count,
             pending_cost,
-            conflict_count: 0, // TODO: POL-006
+            conflict_count,
             total_cost,
             total_fees,
             max_cost: self.config.max_total_cost,
@@ -1275,8 +1362,37 @@ impl Mempool {
 
     /// Number of items in the conflict retry cache.
     pub fn conflict_len(&self) -> usize {
-        // TODO: Read from conflict cache (POL-006)
-        0
+        self.conflict.read().unwrap().len()
+    }
+
+    /// Add a bundle to the conflict cache after a failed active-pool RBF.
+    ///
+    /// Silently drops the bundle if the count or cost limit would be exceeded,
+    /// or if the bundle ID is already cached. Returns `true` if inserted.
+    ///
+    /// Called by the active-pool RBF path (CFR-005) and exposed publicly for
+    /// testing and for callers who manage conflict state directly.
+    ///
+    /// See: [POL-006](docs/requirements/domains/pools/specs/POL-006.md)
+    pub fn add_to_conflict_cache(&self, bundle: SpendBundle, estimated_cost: u64) -> bool {
+        self.conflict.write().unwrap().insert(
+            bundle,
+            estimated_cost,
+            self.config.max_conflict_count,
+            self.config.max_conflict_cost,
+        )
+    }
+
+    /// Drain all conflict cache entries for re-submission.
+    ///
+    /// Returns the raw SpendBundles. Each bundle must be re-submitted via
+    /// `submit()` with fresh coin records. Called by `on_new_block()` (LCY-001)
+    /// when a block is confirmed and previously-conflicting items may now be
+    /// admissible.
+    ///
+    /// See: [POL-006](docs/requirements/domains/pools/specs/POL-006.md)
+    pub fn drain_conflict(&self) -> Vec<SpendBundle> {
+        self.conflict.write().unwrap().drain()
     }
 
     /// Look up a coin created by an active mempool item.
