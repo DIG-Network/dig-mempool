@@ -24,14 +24,13 @@ use std::collections::HashMap;
 use dig_clvm::{Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle};
 use dig_constants::DIG_TESTNET;
 use dig_mempool::{Mempool, MempoolConfig, MempoolError, SubmitResult};
+use hex_literal::hex;
 
 /// SHA-256 tree hash of the nil CLVM atom (Program::default() = [0x80]).
 /// sha256tree(nil atom) = sha256([0x01]) = 4bf5122f...
 /// Required so coin puzzle_hash matches Program::default().
-const NIL_PUZZLE_HASH: [u8; 32] = [
-    0x4b, 0xf5, 0x12, 0x2f, 0x34, 0x45, 0x54, 0xc5, 0x3b, 0xde, 0x2e, 0xbb, 0x8c, 0xd2, 0xb7, 0xe3,
-    0xd1, 0x60, 0x0a, 0xd6, 0x31, 0xc3, 0x85, 0xa5, 0xd7, 0xcc, 0xe2, 0x3c, 0x77, 0x85, 0x45, 0x9a,
-];
+const NIL_PUZZLE_HASH: [u8; 32] =
+    hex!("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a");
 
 /// Create a bundle spending the given coin (nil puzzle/solution), populating coin_records.
 fn coin_bundle(coin: Coin, coin_records: &mut HashMap<Bytes32, CoinRecord>) -> SpendBundle {
