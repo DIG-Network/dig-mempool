@@ -6,10 +6,11 @@ items:
   - id: FEE-001
     section: "Minimum Fee Estimation"
     summary: "3-tier estimate_min_fee() based on utilization"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/fee_estimation/specs/FEE-001.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_fee_001.rs
+    notes: "Implemented in Mempool::estimate_min_fee (src/mempool.rs). 3-tier: <80%→0, 80-100%→virtual_cost*fpc/SCALE, >=100%→virtual_cost*(min_fpc+1)/SCALE. Uses u128 arithmetic to avoid overflow. 7 tests."
 
   - id: FEE-002
     section: "Fee Tracker"
