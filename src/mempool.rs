@@ -406,7 +406,24 @@ impl Mempool {
             });
         }
 
-        // TODO(ADM-005): Virtual cost computation from spend_result
+        // ── ADM-005: Cost and virtual cost computation ──
+        //
+        // The CLVM cost is from chia-consensus. We also compute virtual cost
+        // (adds spend penalty) and check against config.max_bundle_cost.
+        //
+        // Chia L1: max_tx_clvm_cost check at mempool_manager.py:733
+        // https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L733
+        let cost = spend_result.conditions.cost;
+        if cost > self.config.max_bundle_cost {
+            return Err(MempoolError::CostExceeded {
+                cost,
+                max: self.config.max_bundle_cost,
+            });
+        }
+        let num_spends = bundle.coin_spends.len();
+        let _virtual_cost = MempoolItem::compute_virtual_cost(cost, num_spends);
+        let _fee_per_virtual_cost_scaled = MempoolItem::compute_fpc_scaled(fee, _virtual_cost);
+
         // TODO(ADM-006): Timelock resolution from spend_result.conditions
         // TODO(ADM-007): Dedup/FF flag extraction from spend_result.conditions
         // TODO(CFR-001): Conflict detection against coin_index
