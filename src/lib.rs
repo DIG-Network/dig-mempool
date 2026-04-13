@@ -89,9 +89,9 @@ pub mod traits;
 
 pub use config::{MempoolConfig, FPC_SCALE, MEMPOOL_BLOCK_BUFFER};
 pub use error::MempoolError;
-pub use fee::{BlockFeeData, FeeTrackerStats};
+pub use fee::{BlockFeeData, FeeEstimatorState, FeeTrackerStats, SerializedBucket};
 pub use item::{MempoolItem, SingletonLineageInfo};
-pub use mempool::Mempool;
+pub use mempool::{Mempool, MempoolSnapshot};
 pub use stats::MempoolStats;
 pub use submit::{ConfirmedBundleInfo, RetryBundles, SubmitResult};
 pub use traits::{MempoolEventHook, RemovalReason};

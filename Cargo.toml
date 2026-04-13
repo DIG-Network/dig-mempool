@@ -22,6 +22,9 @@ thiserror = "2"
 # Serialization (for snapshot/restore)
 serde = { version = "1", features = ["derive"] }
 
+# chia-protocol serde support for SpendBundle, Bytes32, Coin serialization (LCY-007, FEE-005)
+chia-protocol = { version = "0.26", features = ["serde"] }
+
 # SHA-256 for identical-spend dedup index keys (POL-008)
 sha2 = "0.10.9"
 
@@ -30,3 +33,4 @@ chia-sdk-test = "0.30"
 hex-literal = "0.4"
 rand = "0.8"
 sha2 = "0.10.9"
+serde_json = "1"

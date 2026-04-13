@@ -79,7 +79,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 - [x] FEE-002 — FeeTracker bucket-based tracker (rolling window, log-spaced buckets)
 - [x] FEE-003 — `estimate_fee_rate(target_blocks)` with 85% confidence
 - [x] FEE-004 — `record_confirmed_block()` with exponential decay (0.998)
-- [ ] FEE-005 — FeeEstimatorState serialization for persistence
+- [x] FEE-005 — FeeEstimatorState serialization for persistence
 
 ## Phase 7: Lifecycle / Events / Persistence
 
@@ -89,7 +89,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 - [x] LCY-004 — `clear()` for reorg recovery
 - [x] LCY-005 — MempoolEventHook trait (5 callbacks, called under write lock)
 - [x] LCY-006 — RemovalReason enum (7 variants)
-- [ ] LCY-007 — `snapshot()` / `restore()` persistence (MempoolSnapshot with serde)
+- [x] LCY-007 — `snapshot()` / `restore()` persistence (MempoolSnapshot with serde)
 - [x] LCY-008 — `evict_lowest_percent()` memory pressure eviction
 
 ---

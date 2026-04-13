@@ -15,7 +15,7 @@
 
 pub(crate) mod tracker;
 
-pub use tracker::BlockFeeData;
+pub use tracker::{BlockFeeData, FeeEstimatorState, SerializedBucket};
 pub(crate) use tracker::FeeTracker;
 
 /// Snapshot of `FeeTracker` state for testing and diagnostics.
