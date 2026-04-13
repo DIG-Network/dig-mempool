@@ -106,6 +106,145 @@ impl SeenCache {
     }
 }
 
+/// Internal active pool state — protected by `Mempool::pool: RwLock<ActivePool>`.
+///
+/// Groups the three related HashMaps and running accumulators under a single
+/// RwLock. All modifications are atomic (all-or-nothing within the write lock),
+/// which prevents partial-update visibility to concurrent readers.
+///
+/// # Data Structures
+///
+/// - `items`: Primary O(1) item lookup by bundle ID.
+///   Chia L1 equivalent: `_items` dict at
+///   [mempool.py:151](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L151)
+/// - `coin_index`: O(1) conflict detection — maps each spent coin ID to the bundle
+///   that spends it. Chia L1: `spends` SQL table at
+///   [mempool.py:146-149](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L146)
+/// - `mempool_coins`: O(1) CPFP resolution — maps each created coin ID to the bundle
+///   that created it. dig-mempool extension (not present in Chia L1).
+///
+/// See: [POL-001](docs/requirements/domains/pools/specs/POL-001.md)
+struct ActivePool {
+    /// Primary store: bundle_id → Arc<MempoolItem>.
+    ///
+    /// `Arc` enables zero-copy sharing — callers hold references that remain
+    /// valid even after the item is removed from the pool. All CRUD on the
+    /// active pool goes through `insert()` and `remove()`.
+    items: HashMap<Bytes32, Arc<MempoolItem>>,
+
+    /// Conflict detection index: spent_coin_id → spending bundle_id.
+    ///
+    /// Populated on every `insert()`; cleaned on every `remove()`.
+    /// Used by CFR-001 to detect coin conflicts in O(1): if a candidate
+    /// bundle tries to spend a coin already in `coin_index`, it conflicts.
+    coin_index: HashMap<Bytes32, Bytes32>,
+
+    /// CPFP resolution index: created_coin_id → creating bundle_id.
+    ///
+    /// Populated on every `insert()` for each coin in `item.additions`;
+    /// cleaned on every `remove()`. Used by CPF-001 to resolve CPFP parent
+    /// bundles in O(1): the caller provides a synthetic CoinRecord for each
+    /// coin returned here, enabling the CPFP child to reference parent output.
+    mempool_coins: HashMap<Bytes32, Bytes32>,
+
+    /// Running total of `item.virtual_cost` across all active items.
+    ///
+    /// Updated (+) on `insert()`, (-) on `remove()`. Used for capacity
+    /// management: `total_cost + new_item.virtual_cost > max_total_cost`
+    /// triggers eviction (POL-002).
+    total_cost: u64,
+
+    /// Running total of `item.fee` across all active items.
+    ///
+    /// Updated on insert/remove. Exposed via `stats().total_fees`.
+    total_fees: u64,
+
+    /// Running total of `item.num_spends` across all active items.
+    ///
+    /// Updated on insert/remove. Exposed via `stats().total_spend_count`.
+    total_spends: usize,
+}
+
+impl ActivePool {
+    /// Create an empty active pool with no items.
+    fn new() -> Self {
+        Self {
+            items: HashMap::new(),
+            coin_index: HashMap::new(),
+            mempool_coins: HashMap::new(),
+            total_cost: 0,
+            total_fees: 0,
+            total_spends: 0,
+        }
+    }
+
+    /// Insert an item into the active pool.
+    ///
+    /// Updates `items`, `coin_index` (for each removal), `mempool_coins`
+    /// (for each addition), and the running accumulators.
+    ///
+    /// # Preconditions (caller enforced)
+    ///
+    /// - No coin conflict: none of `item.removals` already in `coin_index`.
+    ///   (Checked by CFR-001 before this is called.)
+    /// - No duplicate: `item.spend_bundle_id` not already in `items`.
+    ///
+    /// # Complexity
+    ///
+    /// O(r + a) where r = `item.removals.len()` and a = `item.additions.len()`.
+    ///
+    /// Chia L1 equivalent: `Mempool.add_to_pool()` at
+    /// [mempool.py:273](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L273)
+    fn insert(&mut self, item: Arc<MempoolItem>) {
+        let id = item.spend_bundle_id;
+
+        // Register all spent coin IDs for O(1) conflict detection (CFR-001).
+        for &coin_id in &item.removals {
+            self.coin_index.insert(coin_id, id);
+        }
+
+        // Register all created coin IDs for O(1) CPFP resolution (CPF-001).
+        for coin in &item.additions {
+            self.mempool_coins.insert(coin.coin_id(), id);
+        }
+
+        // Update running accumulators (used for capacity management + stats).
+        self.total_cost = self.total_cost.saturating_add(item.virtual_cost);
+        self.total_fees = self.total_fees.saturating_add(item.fee);
+        self.total_spends = self.total_spends.saturating_add(item.num_spends);
+
+        self.items.insert(id, item);
+    }
+
+    /// Remove an item from the active pool by bundle ID.
+    ///
+    /// Cleans up `coin_index`, `mempool_coins`, and decrements accumulators.
+    /// Returns the removed `Arc<MempoolItem>`, or `None` if not found.
+    ///
+    /// Called by `on_new_block()` (LCY-001) and capacity eviction (POL-002).
+    ///
+    /// # Complexity
+    ///
+    /// O(r + a) where r = number of removals and a = number of additions.
+    #[allow(dead_code)] // Will be called by POL-002 eviction and LCY-001
+    fn remove(&mut self, bundle_id: &Bytes32) -> Option<Arc<MempoolItem>> {
+        let item = self.items.remove(bundle_id)?;
+
+        for &coin_id in &item.removals {
+            self.coin_index.remove(&coin_id);
+        }
+        for coin in &item.additions {
+            self.mempool_coins.remove(&coin.coin_id());
+        }
+
+        self.total_cost = self.total_cost.saturating_sub(item.virtual_cost);
+        self.total_fees = self.total_fees.saturating_sub(item.fee);
+        self.total_spends = self.total_spends.saturating_sub(item.num_spends);
+
+        Some(item)
+    }
+}
+
 // CoinRecord re-exported for get_mempool_coin_record return type.
 use dig_clvm::CoinRecord;
 
@@ -144,12 +283,15 @@ pub struct Mempool {
     /// See: [`MempoolConfig`] and [API-003](docs/requirements/domains/crate_api/specs/API-003.md).
     config: MempoolConfig,
 
-    /// Active pool item count.
-    /// Protected by RwLock for thread-safe access.
-    /// Will be replaced by the full active pool HashMap in [POL-001].
+    /// Active pool: items HashMap, coin_index, mempool_coins, and accumulators.
     ///
-    /// [POL-001]: docs/requirements/domains/pools/specs/POL-001.md
-    active_count: RwLock<usize>,
+    /// Protected by a single `RwLock` — read lock for queries, write lock for
+    /// `submit()` insertion (Phase 2) and future removal operations. Grouping
+    /// all related state in one lock prevents partial-update visibility and
+    /// avoids multi-lock acquisition ordering issues.
+    ///
+    /// See: [POL-001](docs/requirements/domains/pools/specs/POL-001.md)
+    pool: RwLock<ActivePool>,
 
     /// BLS signature verification cache.
     /// Stores verified pairings for reuse across submissions, avoiding
@@ -218,7 +360,7 @@ impl Mempool {
         Self {
             constants,
             config,
-            active_count: RwLock::new(0),
+            pool: RwLock::new(ActivePool::new()),
             bls_cache: Mutex::new(BlsCache::default()),
             seen_cache: RwLock::new(SeenCache::new(seen_cache_size)),
         }
@@ -229,7 +371,7 @@ impl Mempool {
     /// Returns 0 for a newly constructed mempool.
     /// Thread-safe: acquires a read lock on the active pool.
     pub fn len(&self) -> usize {
-        *self.active_count.read().unwrap()
+        self.pool.read().unwrap().items.len()
     }
 
     /// Whether the active mempool is empty (zero active items).
@@ -249,7 +391,60 @@ impl Mempool {
     ///
     /// See: [`MempoolStats`] and [API-006](docs/requirements/domains/crate_api/specs/API-006.md).
     pub fn stats(&self) -> MempoolStats {
-        MempoolStats::empty(self.config.max_total_cost)
+        let pool = self.pool.read().unwrap();
+
+        let active_count = pool.items.len();
+        let total_cost = pool.total_cost;
+        let total_fees = pool.total_fees;
+        let total_spend_count = pool.total_spends;
+
+        let utilization = if self.config.max_total_cost > 0 {
+            total_cost as f64 / self.config.max_total_cost as f64
+        } else {
+            0.0
+        };
+
+        // FPC range — 0 if the pool is empty.
+        let min_fpc_scaled = pool
+            .items
+            .values()
+            .map(|i| i.fee_per_virtual_cost_scaled)
+            .min()
+            .unwrap_or(0);
+        let max_fpc_scaled = pool
+            .items
+            .values()
+            .map(|i| i.fee_per_virtual_cost_scaled)
+            .max()
+            .unwrap_or(0);
+
+        // CPFP metrics — only items with depth > 0 have real dependencies.
+        let items_with_dependencies = pool.items.values().filter(|i| i.depth > 0).count();
+        let max_current_depth = pool.items.values().map(|i| i.depth).max().unwrap_or(0);
+
+        let dedup_eligible_count = pool.items.values().filter(|i| i.eligible_for_dedup).count();
+        let singleton_ff_count = pool
+            .items
+            .values()
+            .filter(|i| i.singleton_lineage.is_some())
+            .count();
+
+        MempoolStats {
+            active_count,
+            pending_count: 0,  // TODO: POL-004
+            conflict_count: 0, // TODO: POL-006
+            total_cost,
+            total_fees,
+            max_cost: self.config.max_total_cost,
+            utilization,
+            min_fpc_scaled,
+            max_fpc_scaled,
+            items_with_dependencies,
+            max_current_depth,
+            total_spend_count,
+            dedup_eligible_count,
+            singleton_ff_count,
+        }
     }
 
     // ── Submission Methods (ADM-001) ──
@@ -331,6 +526,22 @@ impl Mempool {
                 return Err(MempoolError::AlreadySeen(bundle_id));
             }
             seen.insert(bundle_id);
+        }
+
+        // POL-001: Check active pool (fast rejection if bundle already active).
+        // This handles the rare case where the seen_cache has evicted a bundle ID
+        // that is still in the active pool. Without this check, a seen_cache miss
+        // would allow re-validation and double-insertion of an already-active bundle.
+        //
+        // Does NOT acquire the pool write lock — read-only check before CLVM.
+        // TOCTOU safety: Phase 2 re-checks under write lock before inserting.
+        //
+        // TODO: Also check pending_items (POL-004) and conflict_cache (POL-006).
+        {
+            let pool = self.pool.read().unwrap();
+            if pool.items.contains_key(&bundle_id) {
+                return Err(MempoolError::AlreadySeen(bundle_id));
+            }
         }
 
         // ── Phase 1: Lock-free CLVM validation (ADM-002) ──
@@ -421,8 +632,8 @@ impl Mempool {
             });
         }
         let num_spends = bundle.coin_spends.len();
-        let _virtual_cost = MempoolItem::compute_virtual_cost(cost, num_spends);
-        let _fee_per_virtual_cost_scaled = MempoolItem::compute_fpc_scaled(fee, _virtual_cost);
+        let virtual_cost = MempoolItem::compute_virtual_cost(cost, num_spends);
+        let fee_per_virtual_cost_scaled = MempoolItem::compute_fpc_scaled(fee, virtual_cost);
 
         // ── ADM-006: Timelock resolution ──
         //
@@ -539,7 +750,7 @@ impl Mempool {
         //
         // Chia L1: mempool_manager.py:662-663 (dedup flag check)
         //          mempool_manager.py:666-667 (FF flag check)
-        let _eligible_for_dedup = spend_result
+        let eligible_for_dedup = spend_result
             .conditions
             .spends
             .iter()
@@ -550,14 +761,67 @@ impl Mempool {
             .spends
             .iter()
             .any(|s| s.flags & 0x4 != 0);
-        // TODO: If _any_ff_eligible, extract singleton lineage info
+        // TODO: If _any_ff_eligible, extract singleton lineage info (needs chia-sdk-driver)
         // TODO(CFR-001): Conflict detection against coin_index
         // TODO(POL-002): Capacity management / eviction
+
+        // ── Phase 2: Build MempoolItem and insert into active pool ──
         //
-        // ── Phase 2: State mutation (write lock) ──
-        // For now, after successful validation + fee check, return Success.
-        // The actual insertion into pools will be implemented in POL-001.
-        let _ = spend_result; // Will be consumed by later pipeline steps
+        // All validation passed and the item is not pending. Construct the
+        // immutable MempoolItem from the validated data, wrap in Arc, and
+        // insert into the active pool under a write lock.
+        //
+        // `removals` = coin IDs spent by this bundle (from SpendResult.removals).
+        //   These are registered in coin_index for O(1) conflict detection (CFR-001).
+        // `additions` = coins created by this bundle (from SpendResult.additions).
+        //   These are registered in mempool_coins for O(1) CPFP resolution (CPF-001).
+        //
+        // Chia L1 equivalent: Mempool.add_to_pool() at
+        // [mempool.py:273](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L273)
+
+        // Extract SpendResult fields (partial moves are safe — spend_result
+        // is no longer borrowed from the timelock/flag loops above).
+        let removals: Vec<Bytes32> = spend_result.removals.iter().map(|c| c.coin_id()).collect();
+        let additions = spend_result.additions;
+        let conditions = spend_result.conditions;
+
+        let item = Arc::new(MempoolItem {
+            spend_bundle: bundle,
+            spend_bundle_id: bundle_id,
+            fee,
+            cost,
+            virtual_cost,
+            fee_per_virtual_cost_scaled,
+            // Package fields equal individual fields for root items (no CPFP parent).
+            // Will be updated by CPF-002 when ancestry resolution is implemented.
+            package_fee: fee,
+            package_virtual_cost: virtual_cost,
+            package_fee_per_virtual_cost_scaled: fee_per_virtual_cost_scaled,
+            descendant_score: fee_per_virtual_cost_scaled,
+            additions,
+            removals,
+            height_added: current_height,
+            conditions,
+            num_spends,
+            assert_height,
+            assert_before_height,
+            assert_before_seconds,
+            depends_on: HashSet::new(), // No CPFP dependencies for new items (CPF-002)
+            depth: 0,
+            eligible_for_dedup,
+            singleton_lineage: None, // TODO: extract from _any_ff_eligible (chia-sdk-driver)
+        });
+
+        {
+            let mut pool = self.pool.write().unwrap();
+            // TOCTOU safety: re-check under write lock before inserting.
+            // Another thread may have inserted the same bundle between our
+            // Phase 0 check and now. Idempotent success avoids a double-insertion.
+            if pool.items.contains_key(&bundle_id) {
+                return Ok(SubmitResult::Success);
+            }
+            pool.insert(item);
+        }
 
         Ok(SubmitResult::Success)
     }
@@ -631,27 +895,28 @@ impl Mempool {
     /// Look up an active mempool item by its spend bundle ID.
     ///
     /// Returns `None` if the bundle ID is not in the active pool.
-    /// The returned `Arc<MempoolItem>` is a cheap reference-counted pointer.
-    pub fn get(&self, _bundle_id: &Bytes32) -> Option<Arc<MempoolItem>> {
-        // TODO: Look up in active pool HashMap (POL-001)
-        None
+    /// The returned `Arc<MempoolItem>` is a cheap reference-counted pointer —
+    /// the item remains live as long as the Arc is held, even if the item is
+    /// later removed from the pool.
+    pub fn get(&self, bundle_id: &Bytes32) -> Option<Arc<MempoolItem>> {
+        self.pool.read().unwrap().items.get(bundle_id).cloned()
     }
 
     /// Check whether a bundle ID exists in any pool (active, pending, conflict).
     ///
     /// Returns `true` if found in any pool. Used for dedup checks and
     /// external status queries.
-    pub fn contains(&self, _bundle_id: &Bytes32) -> bool {
-        // TODO: Check active + pending + conflict (POL-001, POL-004, POL-006)
-        false
+    pub fn contains(&self, bundle_id: &Bytes32) -> bool {
+        // POL-001: check active pool
+        // TODO: Also check pending (POL-004) and conflict cache (POL-006)
+        self.pool.read().unwrap().items.contains_key(bundle_id)
     }
 
     /// Return all active (non-pending) bundle IDs.
     ///
     /// The order is not guaranteed. Use `select_for_block()` for ordered selection.
     pub fn active_bundle_ids(&self) -> Vec<Bytes32> {
-        // TODO: Collect keys from active pool HashMap (POL-001)
-        vec![]
+        self.pool.read().unwrap().items.keys().copied().collect()
     }
 
     /// Return all pending (timelocked) bundle IDs.
@@ -662,10 +927,9 @@ impl Mempool {
 
     /// Return all active mempool items as Arc references.
     ///
-    /// Cheap to call — Arc clones are pointer copies.
+    /// Cheap to call — Arc clones are pointer copies (not item copies).
     pub fn active_items(&self) -> Vec<Arc<MempoolItem>> {
-        // TODO: Collect values from active pool HashMap (POL-001)
-        vec![]
+        self.pool.read().unwrap().items.values().cloned().collect()
     }
 
     /// Return the direct dependents (children) of a bundle.
@@ -722,8 +986,14 @@ impl Mempool {
     /// created by any active mempool item.
     ///
     /// See: [SPEC.md Section 3.3](docs/resources/SPEC.md) — CPFP Coin Queries
-    pub fn get_mempool_coin_creator(&self, _coin_id: &Bytes32) -> Option<Bytes32> {
-        // TODO: Look up in mempool_coins index (CPF-001)
-        None
+    pub fn get_mempool_coin_creator(&self, coin_id: &Bytes32) -> Option<Bytes32> {
+        // POL-001: look up in mempool_coins index
+        // mempool_coins: created_coin_id -> creating bundle_id
+        self.pool
+            .read()
+            .unwrap()
+            .mempool_coins
+            .get(coin_id)
+            .copied()
     }
 }

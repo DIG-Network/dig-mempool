@@ -97,8 +97,9 @@ pub struct MempoolStats {
 impl MempoolStats {
     /// Create an empty stats snapshot for a new mempool with the given max_cost.
     ///
-    /// Used by `Mempool::stats()` when the pool has no items. All counters
-    /// and totals are zero; `max_cost` reflects the configured capacity.
+    /// Useful for tests and as a baseline for snapshot comparisons.
+    /// All counters and totals are zero; `max_cost` reflects the configured capacity.
+    #[allow(dead_code)] // Used in tests and future lifecycle code
     pub(crate) fn empty(max_cost: u64) -> Self {
         Self {
             active_count: 0,
