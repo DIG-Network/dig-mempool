@@ -32,11 +32,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 
-use dig_clvm::{BlsCache, Bytes32, SpendBundle};
+use dig_clvm::{chia_protocol::FeeRate, BlsCache, Bytes32, SpendBundle};
 use dig_constants::NetworkConstants;
 
 use crate::config::{MempoolConfig, FPC_SCALE};
 use crate::error::MempoolError;
+use crate::fee::{FeeTracker, FeeTrackerStats};
 use crate::item::MempoolItem;
 use crate::pools::active::sha256_bytes;
 use crate::pools::{ActivePool, ConflictCache, PendingPool, SeenCache};
@@ -149,6 +150,15 @@ pub struct Mempool {
     ///
     /// See: [LCY-005](docs/requirements/domains/lifecycle/specs/LCY-005.md)
     hooks: RwLock<Vec<Arc<dyn MempoolEventHook>>>,
+
+    /// Historical fee-rate tracker for `estimate_fee_rate()`.
+    ///
+    /// Bucket-based tracker updated via `record_confirmed_block()` each block.
+    /// Protected by its own RwLock so reads (`estimate_fee_rate`) can proceed
+    /// concurrently with active-pool reads without contending on `pool`.
+    ///
+    /// See: [FEE-002](docs/requirements/domains/fee_estimation/specs/FEE-002.md)
+    fee_tracker: RwLock<FeeTracker>,
 }
 
 /// Build a child → direct-parent map for all descendants of `root`.
@@ -207,6 +217,8 @@ impl Mempool {
     /// ```
     pub fn with_config(constants: NetworkConstants, config: MempoolConfig) -> Self {
         let seen_cache_size = config.max_seen_cache_size;
+        let fee_window = config.fee_estimator_window;
+        let fee_buckets = config.fee_estimator_buckets;
         Self {
             constants,
             config,
@@ -216,6 +228,7 @@ impl Mempool {
             pending: RwLock::new(PendingPool::new()),
             conflict: RwLock::new(ConflictCache::new()),
             hooks: RwLock::new(Vec::new()),
+            fee_tracker: RwLock::new(FeeTracker::new(fee_window, fee_buckets)),
         }
     }
 
@@ -1739,6 +1752,67 @@ impl Mempool {
         fee.min(u64::MAX as u128) as u64
     }
 
+    /// Record a confirmed block's transaction data into the fee estimator.
+    ///
+    /// Feeds confirmed bundle metrics to the internal `FeeTracker`:
+    /// 1. Applies 0.998 exponential decay to all existing bucket counters.
+    /// 2. Places each bundle into its fee-rate bucket (total_observed++).
+    /// 3. Appends `BlockFeeData` to the rolling window.
+    ///
+    /// Called automatically by `on_new_block()` (step 5). May also be called
+    /// directly for historical data seeding on startup.
+    ///
+    /// # Arguments
+    ///
+    /// - `height`: confirmed block height.
+    /// - `bundles`: slice of per-bundle metrics from the confirmed block.
+    ///
+    /// See: [FEE-004](docs/requirements/domains/fee_estimation/specs/FEE-004.md)
+    pub fn record_confirmed_block(&self, height: u64, bundles: &[ConfirmedBundleInfo]) {
+        self.fee_tracker.write().unwrap().record_block(height, bundles);
+    }
+
+    /// Estimate the fee rate required for confirmation within `target_blocks`.
+    ///
+    /// Scans fee-rate buckets from highest to lowest and returns the first
+    /// bucket whose success rate ≥ 85% for the given confirmation target.
+    ///
+    /// Returns `None` when:
+    /// - Fewer than `fee_estimator_window / 2` blocks have been recorded.
+    /// - No bucket meets the 85% confidence threshold (e.g., all empty).
+    ///
+    /// # Arguments
+    ///
+    /// - `target_blocks`: desired number of blocks within which to confirm.
+    ///   `0` is treated as `1`. Values > 10 use the `confirmed_in_10` counter.
+    ///
+    /// See: [FEE-003](docs/requirements/domains/fee_estimation/specs/FEE-003.md)
+    pub fn estimate_fee_rate(&self, target_blocks: u32) -> Option<FeeRate> {
+        let tracker = self.fee_tracker.read().unwrap();
+        tracker
+            .estimate_fee_rate(target_blocks)
+            .map(FeeRate::new)
+    }
+
+    /// Return a snapshot of the fee tracker's internal state.
+    ///
+    /// Exposes bucket counts, window size, history length, and per-bucket
+    /// counters for external inspection and testing. Read-only; does not
+    /// mutate the tracker.
+    ///
+    /// See: [FEE-002](docs/requirements/domains/fee_estimation/specs/FEE-002.md)
+    pub fn fee_tracker_stats(&self) -> FeeTrackerStats {
+        let tracker = self.fee_tracker.read().unwrap();
+        FeeTrackerStats {
+            bucket_count: tracker.bucket_count(),
+            window: tracker.window,
+            history_len: tracker.block_history.len(),
+            bucket_ranges: tracker.bucket_ranges(),
+            bucket_totals: tracker.bucket_totals(),
+            bucket_confirmed_in_1: tracker.bucket_confirmed_in_1(),
+        }
+    }
+
     // ── Block Candidate Selection ────────────────────────────────────────
 
     /// Select an ordered set of active items for block inclusion.
@@ -1849,7 +1923,7 @@ impl Mempool {
     /// 2. Remove expired items (`assert_before_height <= height` or `assert_before_seconds <= timestamp`) + cascade.
     /// 3. Collect pending promotions (`assert_height <= height`).
     /// 4. Collect conflict retries (bundles whose conflicting active items are gone).
-    /// 5. TODO: Update fee estimator (FEE-004).
+    /// 5. Update fee estimator via `record_confirmed_block()` (FEE-004).
     ///
     /// See: [LCY-001](docs/requirements/domains/lifecycle/specs/LCY-001.md)
     pub fn on_new_block(
@@ -1857,7 +1931,7 @@ impl Mempool {
         height: u64,
         timestamp: u64,
         spent_coin_ids: &[Bytes32],
-        _confirmed_bundles: &[ConfirmedBundleInfo],
+        confirmed_bundles: &[ConfirmedBundleInfo],
     ) -> RetryBundles {
         let mut cascade_evicted: Vec<Bytes32> = Vec::new();
 
@@ -1974,7 +2048,8 @@ impl Mempool {
             bundles
         };
 
-        // Step 5: TODO — Update fee estimator (FEE-004, not yet implemented).
+        // Step 5: Update fee estimator with confirmed block data (FEE-004).
+        self.record_confirmed_block(height, confirmed_bundles);
 
         // LCY-005: Fire removal hooks after all locks are released.
         for (id, reason) in removal_events {
