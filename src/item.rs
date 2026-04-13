@@ -235,6 +235,44 @@ pub struct MempoolItem {
     /// and the caller confirms FF eligibility via `supports_fast_forward()`.
     /// `None` for non-singleton spends.
     pub singleton_lineage: Option<SingletonLineageInfo>,
+
+    // ── Identical Spend Dedup (POL-008) ──
+    /// CLVM execution cost saved by identical-spend deduplication.
+    ///
+    /// Non-zero when another active bundle is already the cost-bearer for one
+    /// or more of this item's coin spends (same coin_id AND same solution hash).
+    /// The block builder runs those CLVM spends once and reuses the result.
+    ///
+    /// Approximated as `(cost / num_spends) * num_deduped_spends` because
+    /// chia-consensus 0.26 does not expose per-spend cost.
+    ///
+    /// 0 when `eligible_for_dedup == false` or dedup is disabled in config.
+    ///
+    /// See: [POL-008](../docs/requirements/domains/pools/specs/POL-008.md)
+    pub cost_saving: u64,
+
+    /// Virtual cost after identical-spend deduction.
+    ///
+    /// `effective_virtual_cost = virtual_cost - cost_saving`
+    ///
+    /// Used by block selection strategies (SEL-003 through SEL-006) to rank
+    /// bundles. Items with cost_saving > 0 appear cheaper than their raw
+    /// virtual_cost, allowing more bundles to fit within the block cost budget.
+    ///
+    /// Equals `virtual_cost` when dedup is disabled or the item is the cost-bearer.
+    pub effective_virtual_cost: u64,
+
+    /// Dedup keys for this item's eligible coin spends.
+    ///
+    /// Each entry is `(coin_id, sha256(solution_bytes))` for a CoinSpend in
+    /// this bundle. Populated only when `eligible_for_dedup == true` and
+    /// dedup is enabled in config.
+    ///
+    /// Stored on the item so that `ActivePool::remove()` can efficiently
+    /// update `dedup_index` and `dedup_waiters` without re-hashing solutions.
+    ///
+    /// Not part of the public API surface — used internally by the pool.
+    pub dedup_keys: Vec<(Bytes32, Bytes32)>,
 }
 
 impl MempoolItem {
@@ -315,6 +353,9 @@ impl MempoolItem {
             depth: 0,
             eligible_for_dedup: false,
             singleton_lineage: None,
+            cost_saving: 0,
+            effective_virtual_cost: virtual_cost,
+            dedup_keys: vec![],
         }
     }
 }

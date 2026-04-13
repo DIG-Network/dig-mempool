@@ -34,6 +34,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use dig_clvm::{BlsCache, Bytes32, SpendBundle};
 use dig_constants::NetworkConstants;
+use sha2::{Digest, Sha256};
 
 use std::collections::VecDeque;
 
@@ -106,6 +107,16 @@ impl SeenCache {
     }
 }
 
+/// Compute SHA-256 of arbitrary bytes, returning a `Bytes32`.
+///
+/// Used by POL-008 to hash CoinSpend solution bytes into dedup index keys.
+/// The dedup key is `(coin_id, sha256(solution_bytes))`.
+fn sha256_bytes(bytes: &[u8]) -> Bytes32 {
+    let hash = Sha256::digest(bytes);
+    let array: [u8; 32] = hash.into();
+    Bytes32::from(array)
+}
+
 /// Internal active pool state — protected by `Mempool::pool: RwLock<ActivePool>`.
 ///
 /// Groups the three related HashMaps and running accumulators under a single
@@ -147,6 +158,25 @@ struct ActivePool {
     /// coin returned here, enabling the CPFP child to reference parent output.
     mempool_coins: HashMap<Bytes32, Bytes32>,
 
+    /// Identical-spend dedup index: (coin_id, sha256(solution)) → cost-bearer bundle_id.
+    ///
+    /// Tracks which active bundle is the "cost bearer" for each unique
+    /// (coin, solution) pair. The cost bearer is the first admitted bundle
+    /// with that spend — its CLVM execution covers all subsequent identical
+    /// spends in the block. Subsequent bundles with the same spend are
+    /// "waiters" and get a `cost_saving` on their effective cost.
+    ///
+    /// Protected by the same pool `RwLock` as the other indexes.
+    ///
+    /// See: [POL-008](docs/requirements/domains/pools/specs/POL-008.md)
+    dedup_index: HashMap<(Bytes32, Bytes32), Bytes32>,
+
+    /// Dedup waiters: (coin_id, sha256(solution)) → ordered list of waiting bundle_ids.
+    ///
+    /// When the cost-bearer is removed, the first waiter is promoted to bearer.
+    /// Entries are cleaned up when bundles leave the pool.
+    dedup_waiters: HashMap<(Bytes32, Bytes32), Vec<Bytes32>>,
+
     /// Running total of `item.virtual_cost` across all active items.
     ///
     /// Updated (+) on `insert()`, (-) on `remove()`. Used for capacity
@@ -172,6 +202,8 @@ impl ActivePool {
             items: HashMap::new(),
             coin_index: HashMap::new(),
             mempool_coins: HashMap::new(),
+            dedup_index: HashMap::new(),
+            dedup_waiters: HashMap::new(),
             total_cost: 0,
             total_fees: 0,
             total_spends: 0,
@@ -208,6 +240,23 @@ impl ActivePool {
             self.mempool_coins.insert(coin.coin_id(), id);
         }
 
+        // ── POL-008: Identical-spend dedup index ──
+        //
+        // For each dedup key (coin_id, sha256(solution)) in this item:
+        // - If no entry yet: this item is the cost bearer → insert into dedup_index.
+        // - If an entry already exists: this item is a waiter → append to dedup_waiters.
+        //
+        // dedup_keys is empty when eligible_for_dedup == false or dedup is disabled.
+        for key in &item.dedup_keys {
+            if self.dedup_index.contains_key(key) {
+                // Another bundle is the cost bearer; register this as a waiter.
+                self.dedup_waiters.entry(*key).or_default().push(id);
+            } else {
+                // First bundle for this key — becomes the cost bearer.
+                self.dedup_index.insert(*key, id);
+            }
+        }
+
         // Update running accumulators (used for capacity management + stats).
         self.total_cost = self.total_cost.saturating_add(item.virtual_cost);
         self.total_fees = self.total_fees.saturating_add(item.fee);
@@ -234,6 +283,44 @@ impl ActivePool {
         }
         for coin in &item.additions {
             self.mempool_coins.remove(&coin.coin_id());
+        }
+
+        // ── POL-008: Dedup index cleanup and bearer re-assignment ──
+        //
+        // For each dedup key this item was involved with:
+        // - If it's the bearer: promote the first waiter (if any) to bearer,
+        //   or remove the key entirely if no waiters remain.
+        // - If it's a waiter: remove it from the waiters list for that key.
+        for key in &item.dedup_keys {
+            if self.dedup_index.get(key) == Some(bundle_id) {
+                // This item is the cost bearer — reassign.
+                let new_bearer = self
+                    .dedup_waiters
+                    .get_mut(key)
+                    .and_then(|w| if w.is_empty() { None } else { Some(w.remove(0)) });
+
+                match new_bearer {
+                    Some(new_id) => {
+                        self.dedup_index.insert(*key, new_id);
+                        // Clean up empty waiters list.
+                        if self.dedup_waiters.get(key).map_or(true, |w| w.is_empty()) {
+                            self.dedup_waiters.remove(key);
+                        }
+                    }
+                    None => {
+                        self.dedup_index.remove(key);
+                        self.dedup_waiters.remove(key);
+                    }
+                }
+            } else {
+                // This item is a waiter — remove it from the waiters list.
+                if let Some(waiters) = self.dedup_waiters.get_mut(key) {
+                    waiters.retain(|id| id != bundle_id);
+                    if waiters.is_empty() {
+                        self.dedup_waiters.remove(key);
+                    }
+                }
+            }
         }
 
         self.total_cost = self.total_cost.saturating_sub(item.virtual_cost);
@@ -1050,13 +1137,14 @@ impl Mempool {
         // TODO: If _any_ff_eligible, extract singleton lineage info (needs chia-sdk-driver)
         // TODO(CFR-001): Conflict detection against coin_index
 
-        // ── Build MempoolItem ──
-        //
-        // Construct the immutable MempoolItem from the validated data.
-        // Built before routing so it can go to either the pending or active pool.
+        // ── Build MempoolItem (split by routing path) ──
         //
         // `removals` = coin IDs spent by this bundle (from SpendResult.removals).
         // `additions` = coins created by this bundle (from SpendResult.additions).
+        //
+        // Item construction is split between the pending and active paths because
+        // the active path (POL-008) needs to compute cost_saving under the pool
+        // write lock — requiring it to be built inside the lock scope.
         //
         // Chia L1 equivalent: Mempool.add_to_pool() at
         // [mempool.py:273](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L273)
@@ -1067,42 +1155,65 @@ impl Mempool {
         let additions = spend_result.additions;
         let conditions = spend_result.conditions;
 
-        let item = Arc::new(MempoolItem {
-            spend_bundle: bundle,
-            spend_bundle_id: bundle_id,
-            fee,
-            cost,
-            virtual_cost,
-            fee_per_virtual_cost_scaled,
-            // Package fields equal individual fields for root items (no CPFP parent).
-            // Will be updated by CPF-002 when ancestry resolution is implemented.
-            package_fee: fee,
-            package_virtual_cost: virtual_cost,
-            package_fee_per_virtual_cost_scaled: fee_per_virtual_cost_scaled,
-            descendant_score: fee_per_virtual_cost_scaled,
-            additions,
-            removals,
-            height_added: current_height,
-            conditions,
-            num_spends,
-            assert_height,
-            assert_seconds,
-            assert_before_height,
-            assert_before_seconds,
-            depends_on: HashSet::new(), // No CPFP dependencies for new items (CPF-002)
-            depth: 0,
-            eligible_for_dedup,
-            singleton_lineage: None, // TODO: extract from _any_ff_eligible (chia-sdk-driver)
-        });
+        // ── POL-008: Pre-compute dedup keys (lock-free) ──
+        //
+        // Compute (coin_id, sha256(solution)) keys for each eligible CoinSpend.
+        // Done BEFORE `bundle` is consumed (item construction moves it).
+        // Only meaningful for active-pool submissions — pending items don't
+        // participate in dedup (POL-008 applies to the active pool only).
+        //
+        // We hash the solution bytes using raw SHA-256 (not CLVM tree hash)
+        // to match the Chia L1 `IdenticalSpendDedup` implementation.
+        let dedup_keys: Vec<(Bytes32, Bytes32)> = if !is_pending
+            && eligible_for_dedup
+            && self.config.enable_identical_spend_dedup
+        {
+            bundle
+                .coin_spends
+                .iter()
+                .map(|cs| (cs.coin.coin_id(), sha256_bytes(cs.solution.as_ref())))
+                .collect()
+        } else {
+            vec![]
+        };
 
         if is_pending {
             // ── Phase 2a: Route to pending pool (POL-004) ──
             //
-            // The item is valid but timelocked. Insert into the pending pool
-            // subject to count and cost limits. Returns PendingPoolFull if
-            // either limit is exceeded.
+            // Build the item before acquiring the lock — item construction is cheap
+            // and the pending path requires removals/fee/fpc for RBF checks.
+            // Pending items do NOT participate in dedup (POL-008 is active pool only).
             //
             // Chia L1: PendingTxCache.add() at pending_tx_cache.py:60-76
+            let item = Arc::new(MempoolItem {
+                spend_bundle: bundle,
+                spend_bundle_id: bundle_id,
+                fee,
+                cost,
+                virtual_cost,
+                fee_per_virtual_cost_scaled,
+                package_fee: fee,
+                package_virtual_cost: virtual_cost,
+                package_fee_per_virtual_cost_scaled: fee_per_virtual_cost_scaled,
+                descendant_score: fee_per_virtual_cost_scaled,
+                additions,
+                removals,
+                height_added: current_height,
+                conditions,
+                num_spends,
+                assert_height,
+                assert_seconds,
+                assert_before_height,
+                assert_before_seconds,
+                depends_on: HashSet::new(),
+                depth: 0,
+                eligible_for_dedup,
+                singleton_lineage: None,
+                cost_saving: 0,
+                effective_virtual_cost: virtual_cost,
+                dedup_keys: vec![],
+            });
+
             let mut pending = self.pending.write().unwrap();
             // TOCTOU safety: re-check under write lock.
             if pending.pending.contains_key(&bundle_id) {
@@ -1203,6 +1314,58 @@ impl Mempool {
                     max: self.config.max_spends_per_block,
                 });
             }
+
+            // ── POL-008: Compute cost_saving under pool write lock ──
+            //
+            // Check how many of this item's dedup keys are already borne by
+            // another active bundle. Each matching key saves approximately
+            // `cost / num_spends` in effective block cost (uniform distribution
+            // approximation — chia-consensus 0.26 does not expose per-spend cost).
+            //
+            // This must be computed under the write lock so that the dedup_index
+            // state and item construction are atomic.
+            let num_deduped = dedup_keys
+                .iter()
+                .filter(|k| pool.dedup_index.contains_key(k))
+                .count();
+            let per_spend_cost = if num_spends > 0 {
+                cost / num_spends as u64
+            } else {
+                0
+            };
+            let cost_saving = per_spend_cost.saturating_mul(num_deduped as u64);
+            let effective_virtual_cost = virtual_cost.saturating_sub(cost_saving);
+
+            // Build the item inside the lock so cost_saving is consistent with
+            // the dedup_index state at insertion time.
+            let item = Arc::new(MempoolItem {
+                spend_bundle: bundle,
+                spend_bundle_id: bundle_id,
+                fee,
+                cost,
+                virtual_cost,
+                fee_per_virtual_cost_scaled,
+                package_fee: fee,
+                package_virtual_cost: virtual_cost,
+                package_fee_per_virtual_cost_scaled: fee_per_virtual_cost_scaled,
+                descendant_score: fee_per_virtual_cost_scaled,
+                additions,
+                removals,
+                height_added: current_height,
+                conditions,
+                num_spends,
+                assert_height,
+                assert_seconds,
+                assert_before_height,
+                assert_before_seconds,
+                depends_on: HashSet::new(),
+                depth: 0,
+                eligible_for_dedup,
+                singleton_lineage: None,
+                cost_saving,
+                effective_virtual_cost,
+                dedup_keys,
+            });
 
             // ── POL-002: Capacity management — evict if needed ──
             //
@@ -1432,6 +1595,8 @@ impl Mempool {
             pool.items.clear();
             pool.coin_index.clear();
             pool.mempool_coins.clear();
+            pool.dedup_index.clear();
+            pool.dedup_waiters.clear();
             pool.total_cost = 0;
             pool.total_fees = 0;
             pool.total_spends = 0;
@@ -1500,6 +1665,46 @@ impl Mempool {
             .unwrap()
             .pending_coin_index
             .get(coin_id)
+            .copied()
+    }
+
+    /// Remove an active item by bundle ID.
+    ///
+    /// Returns `true` if the item was found and removed, `false` if it was not
+    /// in the active pool. This is the single-item removal primitive used by
+    /// `on_new_block()` (LCY-001) when confirmed coins are removed from the pool.
+    ///
+    /// Updates all indexes: `coin_index`, `mempool_coins`, `dedup_index`, and
+    /// `dedup_waiters`. The seen-cache is NOT modified — previously-submitted
+    /// bundles remain cached as seen to prevent re-admission.
+    ///
+    /// See: [LCY-001](docs/requirements/domains/lifecycle/specs/LCY-001.md)
+    pub fn remove(&self, bundle_id: &Bytes32) -> bool {
+        self.pool.write().unwrap().remove(bundle_id).is_some()
+    }
+
+    /// Number of entries in the identical-spend dedup index.
+    ///
+    /// Each entry represents a unique (coin_id, sha256(solution)) pair that has
+    /// at least one cost-bearing active bundle. Used for testing and diagnostics.
+    ///
+    /// See: [POL-008](docs/requirements/domains/pools/specs/POL-008.md)
+    pub fn dedup_index_len(&self) -> usize {
+        self.pool.read().unwrap().dedup_index.len()
+    }
+
+    /// Look up the cost-bearer bundle ID for a (coin_id, solution_hash) dedup key.
+    ///
+    /// Returns `None` if the key is not in the dedup index (no eligible bundle
+    /// for this spend has been admitted, or dedup is disabled).
+    ///
+    /// See: [POL-008](docs/requirements/domains/pools/specs/POL-008.md)
+    pub fn get_dedup_bearer(&self, coin_id: &Bytes32, solution_hash: &Bytes32) -> Option<Bytes32> {
+        self.pool
+            .read()
+            .unwrap()
+            .dedup_index
+            .get(&(*coin_id, *solution_hash))
             .copied()
     }
 }
