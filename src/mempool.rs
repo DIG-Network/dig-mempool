@@ -29,9 +29,10 @@
 //! [mempool.py:94]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L94
 //! [mempool_manager.py:295]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L295
 
-use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, RwLock};
 
-use dig_clvm::{Bytes32, SpendBundle};
+use dig_clvm::{BlsCache, Bytes32, SpendBundle};
 use dig_constants::NetworkConstants;
 
 use crate::config::MempoolConfig;
@@ -84,6 +85,19 @@ pub struct Mempool {
     ///
     /// [POL-001]: docs/requirements/domains/pools/specs/POL-001.md
     active_count: RwLock<usize>,
+
+    /// BLS signature verification cache.
+    /// Stores verified pairings for reuse across submissions, avoiding
+    /// redundant elliptic curve operations. Protected by Mutex because
+    /// `validate_spend_bundle()` needs `&mut BlsCache`.
+    ///
+    /// The cache is accessed during Phase 1 (lock-free CLVM validation).
+    /// Multiple threads may contend on this mutex, but BLS verification
+    /// is fast relative to CLVM execution.
+    ///
+    /// From `chia-bls` via dig-clvm re-export.
+    /// See: [ADM-002](docs/requirements/domains/admission/specs/ADM-002.md)
+    bls_cache: Mutex<BlsCache>,
 }
 
 impl Mempool {
@@ -123,6 +137,7 @@ impl Mempool {
             constants,
             config,
             active_count: RwLock::new(0),
+            bls_cache: Mutex::new(BlsCache::default()),
         }
     }
 
@@ -196,21 +211,77 @@ impl Mempool {
     /// See: [ADM-001](docs/requirements/domains/admission/specs/ADM-001.md)
     pub fn submit(
         &self,
-        _bundle: SpendBundle,
-        _coin_records: &std::collections::HashMap<Bytes32, CoinRecord>,
-        _current_height: u64,
-        _current_timestamp: u64,
+        bundle: SpendBundle,
+        coin_records: &HashMap<Bytes32, CoinRecord>,
+        current_height: u64,
+        current_timestamp: u64,
     ) -> Result<SubmitResult, MempoolError> {
-        // TODO(ADM-002): Wire CLVM validation via dig_clvm::validate_spend_bundle()
-        // TODO(ADM-003): Dedup check via seen-cache
-        // TODO(ADM-004): Fee extraction + RESERVE_FEE check
-        // TODO(ADM-005): Virtual cost computation
-        // TODO(ADM-006): Timelock resolution
-        // TODO(ADM-007): Dedup/FF flag extraction
-        // TODO(CFR-001): Conflict detection
-        // TODO(POL-002): Capacity management
+        // ── Phase 1: Lock-free CLVM validation (ADM-002) ──
         //
-        // For ADM-001, we only establish the signature. The pipeline is stubbed.
+        // This is the expensive step. It runs WITHOUT holding the mempool
+        // write lock, allowing concurrent validation of multiple submissions.
+        //
+        // dig-clvm performs:
+        //   1. Duplicate spend detection (validate.rs:39-48)
+        //   2. Coin existence check (validate.rs:50-62)
+        //   3. CLVM execution via chia_consensus::run_spendbundle() (validate.rs:79-102)
+        //   4. BLS aggregate signature verification via BlsCache (validate.rs:107-113)
+        //   5. Cost enforcement (validate.rs:126-131)
+        //   6. Addition/removal extraction (validate.rs:134-146)
+        //   7. Conservation check: sum(inputs) >= sum(outputs) (validate.rs:148-159)
+        //
+        // Chia L1 equivalent: validate_clvm_and_signature() at mempool_manager.py:445
+        // https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L445
+
+        // Build the validation context from caller-provided chain state.
+        // `coin_records` contains only the coins being spent (not the full UTXO set).
+        // `ephemeral_coins` will be populated for CPFP candidates in CPF-002.
+        let ctx = dig_clvm::ValidationContext {
+            height: current_height as u32,
+            timestamp: current_timestamp,
+            constants: self.constants.clone(),
+            coin_records: coin_records.clone(),
+            ephemeral_coins: HashSet::new(), // TODO(CPF-002): populate for CPFP
+        };
+
+        // Use MEMPOOL_MODE for strict validation:
+        // - Reject unknown condition opcodes
+        // - Stricter cost accounting
+        // - Canonical encoding checks (enables dedup eligibility flags)
+        //
+        // Chia L1: MEMPOOL_MODE at mempool.py:13
+        // https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L13
+        let config = dig_clvm::ValidationConfig {
+            flags: dig_clvm::chia_consensus::flags::MEMPOOL_MODE,
+            ..Default::default()
+        };
+
+        // Acquire the BLS cache mutex for signature verification.
+        // The mutex is only held during the validate_spend_bundle() call.
+        // This serializes BLS pairing operations but CLVM execution is the
+        // bottleneck, not signature verification.
+        let mut bls_cache = self.bls_cache.lock().unwrap();
+
+        // The ? operator converts dig_clvm::ValidationError to MempoolError
+        // via the From<ValidationError> impl in error.rs (API-004).
+        let _spend_result =
+            dig_clvm::validate_spend_bundle(&bundle, &ctx, &config, Some(&mut bls_cache))?;
+
+        // Release the BLS cache before Phase 2
+        drop(bls_cache);
+
+        // TODO(ADM-003): Dedup check via seen-cache
+        // TODO(ADM-004): Fee extraction + RESERVE_FEE check from _spend_result
+        // TODO(ADM-005): Virtual cost computation from _spend_result
+        // TODO(ADM-006): Timelock resolution from _spend_result.conditions
+        // TODO(ADM-007): Dedup/FF flag extraction from _spend_result.conditions
+        // TODO(CFR-001): Conflict detection against coin_index
+        // TODO(POL-002): Capacity management / eviction
+        //
+        // ── Phase 2: State mutation (write lock) ──
+        // For now, after successful validation, we return Success.
+        // The actual insertion into pools will be implemented in POL-001.
+
         Ok(SubmitResult::Success)
     }
 
@@ -229,14 +300,15 @@ impl Mempool {
     /// See: [API-007](docs/requirements/domains/crate_api/specs/API-007.md)
     pub fn submit_with_policy(
         &self,
-        _bundle: SpendBundle,
-        _coin_records: &std::collections::HashMap<Bytes32, CoinRecord>,
-        _current_height: u64,
-        _current_timestamp: u64,
+        bundle: SpendBundle,
+        coin_records: &HashMap<Bytes32, CoinRecord>,
+        current_height: u64,
+        current_timestamp: u64,
         _policy: &dyn crate::traits::AdmissionPolicy,
     ) -> Result<SubmitResult, MempoolError> {
-        // TODO: Same pipeline as submit() + policy check at step 16
-        Ok(SubmitResult::Success)
+        // Same pipeline as submit() + policy check at step 16.
+        // TODO: invoke _policy.check() after standard validation passes.
+        self.submit(bundle, coin_records, current_height, current_timestamp)
     }
 
     // ── Query Methods (API-008) ──
