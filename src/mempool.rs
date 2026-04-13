@@ -1006,6 +1006,65 @@ impl Mempool {
                     assert_height: assert_height.unwrap_or(0),
                 });
             }
+
+            // ── POL-005: Pending-vs-pending conflict detection + RBF ──
+            //
+            // If this item spends a coin already spent by a pending item,
+            // apply RBF rules: superset check, FPC must be strictly higher,
+            // fee bump must meet minimum. Failed RBF rejects the new item
+            // without touching the conflict cache (pending RBF ≠ active RBF).
+            let conflict_ids: Vec<Bytes32> = {
+                let mut seen_conflicts = HashSet::new();
+                item.removals
+                    .iter()
+                    .filter_map(|coin_id| pending.pending_coin_index.get(coin_id).copied())
+                    .filter(|id| seen_conflicts.insert(*id))
+                    .collect()
+            };
+
+            if !conflict_ids.is_empty() {
+                // Superset rule: new item must spend every coin spent by each
+                // conflicting item — it must be a strict superset of their removals.
+                for cid in &conflict_ids {
+                    let conflict = pending.pending.get(cid).unwrap();
+                    for &coin_id in &conflict.removals {
+                        if !item.removals.contains(&coin_id) {
+                            return Err(MempoolError::RbfNotSuperset);
+                        }
+                    }
+                }
+
+                // FPC rule: aggregate all conflicting items and compare FPC.
+                let total_conflict_fee: u64 = conflict_ids
+                    .iter()
+                    .map(|cid| pending.pending.get(cid).unwrap().fee)
+                    .sum();
+                let total_conflict_vc: u64 = conflict_ids
+                    .iter()
+                    .map(|cid| pending.pending.get(cid).unwrap().virtual_cost)
+                    .sum();
+                let conflict_fpc =
+                    MempoolItem::compute_fpc_scaled(total_conflict_fee, total_conflict_vc);
+                if item.fee_per_virtual_cost_scaled <= conflict_fpc {
+                    return Err(MempoolError::RbfFpcNotHigher);
+                }
+
+                // Fee bump rule: new fee must exceed total conflict fee by at least
+                // config.min_rbf_fee_bump (default 10M mojos).
+                let required = total_conflict_fee.saturating_add(self.config.min_rbf_fee_bump);
+                if item.fee < required {
+                    return Err(MempoolError::RbfBumpTooLow {
+                        required,
+                        provided: item.fee,
+                    });
+                }
+
+                // All RBF rules passed — evict the conflicting pending items.
+                for cid in &conflict_ids {
+                    pending.remove(cid);
+                }
+            }
+
             if pending.pending.len() >= self.config.max_pending_count {
                 return Err(MempoolError::PendingPoolFull);
             }
@@ -1249,6 +1308,21 @@ impl Mempool {
             .read()
             .unwrap()
             .mempool_coins
+            .get(coin_id)
+            .copied()
+    }
+
+    /// Look up which pending item spends a given coin.
+    ///
+    /// Returns the spending bundle's ID, or `None` if the coin is not spent
+    /// by any pending item. Used for pending-vs-pending conflict detection.
+    ///
+    /// See: [POL-005](docs/requirements/domains/pools/specs/POL-005.md)
+    pub fn get_pending_coin_spender(&self, coin_id: &Bytes32) -> Option<Bytes32> {
+        self.pending
+            .read()
+            .unwrap()
+            .pending_coin_index
             .get(coin_id)
             .copied()
     }
