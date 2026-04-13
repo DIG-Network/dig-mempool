@@ -113,12 +113,7 @@ pub(crate) fn sel_collect_ancestors(
     already_selected: &HashMap<Bytes32, Arc<MempoolItem>>,
 ) -> Vec<Bytes32> {
     let mut result = Vec::new();
-    let mut to_visit: Vec<Bytes32> = deps
-        .get(bundle_id)
-        .into_iter()
-        .flatten()
-        .copied()
-        .collect();
+    let mut to_visit: Vec<Bytes32> = deps.get(bundle_id).into_iter().flatten().copied().collect();
     let mut visited: HashSet<Bytes32> = HashSet::new();
     while let Some(id) = to_visit.pop() {
         if already_selected.contains_key(&id) || !visited.insert(id) {
@@ -169,11 +164,51 @@ pub(crate) fn sel_greedy(
             .cloned()
             .collect();
 
+        // ── POL-009: Singleton chain all-or-nothing ──
+        //
+        // If this item belongs to a singleton chain, collect all unselected
+        // successors in the chain (items after this one in lineage order).
+        // All must fit in the budget; if not, skip the whole chain.
+        let unselected_successor_ids: Vec<Bytes32> = if let Some(ref lineage) =
+            item.singleton_lineage
+        {
+            if let Some(chain) = pool.singleton_spends.get(&lineage.launcher_id) {
+                let pos = chain.iter().position(|id| *id == item.spend_bundle_id);
+                if let Some(idx) = pos {
+                    chain[idx + 1..]
+                        .iter()
+                        .copied()
+                        .filter(|id| candidates_set.contains(id) && !selected.contains_key(id))
+                        .collect()
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        for succ_id in &unselected_successor_ids {
+            if !candidates_set.contains(succ_id) {
+                continue 'outer;
+            }
+        }
+
+        let unselected_succs: Vec<Arc<MempoolItem>> = unselected_successor_ids
+            .iter()
+            .filter_map(|id| pool.items.get(id))
+            .cloned()
+            .collect();
+
         let add_cost = item
             .virtual_cost
-            .saturating_add(unselected_ancs.iter().map(|a| a.virtual_cost).sum::<u64>());
+            .saturating_add(unselected_ancs.iter().map(|a| a.virtual_cost).sum::<u64>())
+            .saturating_add(unselected_succs.iter().map(|s| s.virtual_cost).sum::<u64>());
         let add_spends = item.num_spends
-            + unselected_ancs.iter().map(|a| a.num_spends).sum::<usize>();
+            + unselected_ancs.iter().map(|a| a.num_spends).sum::<usize>()
+            + unselected_succs.iter().map(|s| s.num_spends).sum::<usize>();
 
         if total_cost.saturating_add(add_cost) > max_block_cost {
             continue;
@@ -186,6 +221,7 @@ pub(crate) fn sel_greedy(
             .removals
             .iter()
             .chain(unselected_ancs.iter().flat_map(|a| a.removals.iter()))
+            .chain(unselected_succs.iter().flat_map(|s| s.removals.iter()))
             .copied()
             .collect();
         if all_removals.iter().any(|r| spent_coins.contains(r)) {
@@ -204,6 +240,13 @@ pub(crate) fn sel_greedy(
         total_cost = total_cost.saturating_add(item.virtual_cost);
         total_fees = total_fees.saturating_add(item.fee);
         total_spends = total_spends.saturating_add(item.num_spends);
+        for succ in &unselected_succs {
+            selected.insert(succ.spend_bundle_id, succ.clone());
+            spent_coins.extend(succ.removals.iter().copied());
+            total_cost = total_cost.saturating_add(succ.virtual_cost);
+            total_fees = total_fees.saturating_add(succ.fee);
+            total_spends = total_spends.saturating_add(succ.num_spends);
+        }
     }
 
     let count = selected.len();

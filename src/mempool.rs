@@ -32,7 +32,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 
-use dig_clvm::{chia_protocol::FeeRate, BlsCache, Bytes32, SpendBundle};
+use chia_sdk_driver::SingletonLayer;
+use dig_clvm::{
+    chia_protocol::FeeRate,
+    clvmr::serde::node_from_bytes,
+    Allocator, BlsCache, Bytes32, Layer, NodePtr, Puzzle, SpendBundle,
+};
 use serde::{Deserialize, Serialize};
 use dig_constants::NetworkConstants;
 
@@ -189,6 +194,36 @@ pub struct Mempool {
     ///
     /// See: [FEE-002](docs/requirements/domains/fee_estimation/specs/FEE-002.md)
     fee_tracker: RwLock<FeeTracker>,
+}
+
+/// Try to parse a singleton top-layer puzzle reveal and extract lineage info.
+///
+/// Deserializes `puzzle_bytes` into CLVM, then parses as
+/// `SingletonLayer::<Puzzle>`. On success, extracts `launcher_id` and
+/// `inner_puzzle_hash` for the `SingletonLineageInfo`.
+///
+/// Returns `None` if the puzzle is not a singleton or if parsing fails.
+///
+/// See: [POL-009](docs/requirements/domains/pools/specs/POL-009.md)
+fn try_extract_singleton_lineage(
+    coin: dig_clvm::Coin,
+    puzzle_bytes: &[u8],
+) -> Option<crate::item::SingletonLineageInfo> {
+    let mut allocator = Allocator::new();
+    let ptr: NodePtr = node_from_bytes(&mut allocator, puzzle_bytes).ok()?;
+    let puzzle = Puzzle::parse(&allocator, ptr);
+    let layer = SingletonLayer::<Puzzle>::parse_puzzle(&allocator, puzzle).ok()??;
+
+    use dig_clvm::clvm_utils::ToTreeHash;
+    let inner_puzzle_hash: [u8; 32] = layer.inner_puzzle.tree_hash().into();
+
+    Some(crate::item::SingletonLineageInfo {
+        coin_id: coin.coin_id(),
+        parent_id: coin.parent_coin_info,
+        parent_parent_id: Bytes32::default(), // available from coin_records if needed
+        launcher_id: layer.launcher_id,
+        inner_puzzle_hash: Bytes32::from(inner_puzzle_hash),
+    })
 }
 
 /// Build a child → direct-parent map for all descendants of `root`.
@@ -727,12 +762,35 @@ impl Mempool {
             .iter()
             .all(|s| s.flags & 0x1 != 0)
             || spend_result.conditions.spends.is_empty(); // vacuously true for 0 spends
-        let _any_ff_eligible = spend_result
+        let any_ff_eligible = spend_result
             .conditions
             .spends
             .iter()
             .any(|s| s.flags & 0x4 != 0);
-        // TODO: If _any_ff_eligible, extract singleton lineage info (needs chia-sdk-driver)
+
+        // ── ADM-007 / POL-009: Extract singleton lineage if FF-eligible ──
+        //
+        // When chia-consensus marks a spend ELIGIBLE_FOR_FF (0x4), it is a singleton
+        // top-layer v1.1 spend. Parse the puzzle reveal to extract the `launcher_id`
+        // and `inner_puzzle_hash` for the singleton chain index (POL-009).
+        //
+        // Requires: enable_singleton_ff = true (default), and the puzzle reveal must
+        // be a valid curried singleton top-layer application.
+        //
+        // Detection is gated by `enable_singleton_ff` to allow disabling the feature.
+        let singleton_lineage = if any_ff_eligible && self.config.enable_singleton_ff {
+            // Find the first FF-eligible spend and try to parse its puzzle as a singleton.
+            bundle
+                .coin_spends
+                .iter()
+                .zip(spend_result.conditions.spends.iter())
+                .find(|(_, sc)| sc.flags & 0x4 != 0)
+                .and_then(|(cs, _)| {
+                    try_extract_singleton_lineage(cs.coin, cs.puzzle_reveal.as_ref())
+                })
+        } else {
+            None
+        };
         // TODO(CFR-001): Conflict detection against coin_index
 
         // ── Build MempoolItem (split by routing path) ──
@@ -804,7 +862,7 @@ impl Mempool {
                 depends_on: HashSet::new(),
                 depth: 0,
                 eligible_for_dedup,
-                singleton_lineage: None,
+                singleton_lineage: singleton_lineage.clone(),
                 cost_saving: 0,
                 effective_virtual_cost: virtual_cost,
                 dedup_keys: vec![],
@@ -1197,7 +1255,7 @@ impl Mempool {
                 depends_on,
                 depth,
                 eligible_for_dedup,
-                singleton_lineage: None,
+                singleton_lineage,
                 cost_saving,
                 effective_virtual_cost,
                 dedup_keys,
@@ -1482,6 +1540,7 @@ impl Mempool {
             pool.dependents.clear();
             pool.dedup_index.clear();
             pool.dedup_waiters.clear();
+            pool.singleton_spends.clear();
             pool.total_cost = 0;
             pool.total_fees = 0;
             pool.total_spends = 0;
@@ -2117,6 +2176,43 @@ impl Mempool {
         }
     }
 
+    // ── Singleton Tracking (POL-009) ──────────────────────────────────────
+
+    /// Return the ordered bundle ID chain for a singleton launcher.
+    ///
+    /// Returns bundle IDs in lineage order (oldest first). Returns an empty
+    /// vec if the launcher has no active items in the pool.
+    ///
+    /// See: [POL-009](docs/requirements/domains/pools/specs/POL-009.md)
+    pub fn singleton_chain(&self, launcher_id: &Bytes32) -> Vec<Bytes32> {
+        self.pool
+            .read()
+            .unwrap()
+            .singleton_spends
+            .get(launcher_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Number of distinct singleton launchers currently tracked.
+    ///
+    /// Each launcher with at least one active item is counted once.
+    ///
+    /// See: [POL-009](docs/requirements/domains/pools/specs/POL-009.md)
+    pub fn singleton_spends_count(&self) -> usize {
+        self.pool.read().unwrap().singleton_spends.len()
+    }
+
+    /// Insert a `MempoolItem` directly into the active pool, bypassing admission.
+    ///
+    /// ONLY for testing. The item is inserted as-is (no CLVM validation, no
+    /// dedup, no capacity checks). Use when you need to populate the pool with
+    /// items that have specific field values (e.g., `singleton_lineage`) that
+    /// can only be set programmatically and not through the normal submit path.
+    pub fn force_insert(&self, item: crate::item::MempoolItem) {
+        self.pool.write().unwrap().insert(Arc::new(item));
+    }
+
     // ── Snapshot / Restore (LCY-007) ─────────────────────────────────────
 
     /// Capture a serializable snapshot of the complete mempool state.
@@ -2202,6 +2298,7 @@ impl Mempool {
             pool.dependents.clear();
             pool.dedup_index.clear();
             pool.dedup_waiters.clear();
+            pool.singleton_spends.clear();
             pool.total_cost = 0;
             pool.total_fees = 0;
             pool.total_spends = 0;

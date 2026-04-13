@@ -39,7 +39,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 - [x] POL-006 — Conflict cache (HashMap, count + cost limits)
 - [x] POL-007 — Seen cache (LRU bounded set, pre-validation insertion)
 - [x] POL-008 — Identical spend dedup index (cost adjustment tracking)
-- [ ] POL-009 — Singleton tracking (launcher_id -> bundle chain ordering)
+- [x] POL-009 — Singleton tracking (launcher_id -> bundle chain ordering)
 - [x] POL-010 — Concurrency (RwLock per pool, Mutex for BLS, Send + Sync)
 
 ## Phase 3: Conflict Resolution / RBF
