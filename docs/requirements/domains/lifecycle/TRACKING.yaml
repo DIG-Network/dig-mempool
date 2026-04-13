@@ -60,10 +60,11 @@ items:
   - id: LCY-007
     section: "Persistence"
     summary: "snapshot()/restore() with MempoolSnapshot"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-007.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_lcy_007.rs
+    notes: "MempoolSnapshot derives Serialize+Deserialize (pub in lib.rs). Contains active_items (Vec<MempoolItem>), pending_items, conflict_bundles (Vec<(SpendBundle, u64)>), fee_estimator_state. MempoolItem serde: u128 fields use serde_u128_str string helper; conditions field skipped (only used during admission, never read from stored items). restore() clears active/pending/conflict (not seen-cache), then inserts items via pool.insert() to rebuild all indexes. 9 tests."
 
   - id: LCY-008
     section: "Memory Pressure"
