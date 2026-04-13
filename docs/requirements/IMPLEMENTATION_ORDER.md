@@ -44,12 +44,12 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 
 ## Phase 3: Conflict Resolution / RBF
 
-- [ ] CFR-001 — Conflict detection via coin_index (active pool only)
-- [ ] CFR-002 — RBF superset rule
-- [ ] CFR-003 — RBF higher fee-per-virtual-cost requirement
-- [ ] CFR-004 — RBF minimum fee bump (10M mojos)
-- [ ] CFR-005 — Conflict cache on RBF failure
-- [ ] CFR-006 — RBF + CPFP cascade eviction interaction
+- [x] CFR-001 — Conflict detection via coin_index (active pool only)
+- [x] CFR-002 — RBF superset rule
+- [x] CFR-003 — RBF higher fee-per-virtual-cost requirement
+- [x] CFR-004 — RBF minimum fee bump (10M mojos)
+- [x] CFR-005 — Conflict cache on RBF failure
+- [x] CFR-006 — RBF + CPFP cascade eviction interaction
 
 ## Phase 4: CPFP Dependencies
 

@@ -433,12 +433,17 @@ fn vv_req_pol_008_cost_bearer_removal_reassigns() {
 /// Proves POL-008: "The feature is gated by enable_identical_spend_dedup."
 /// With the feature off, eligible bundles should have cost_saving = 0 and
 /// effective_virtual_cost = virtual_cost.
+///
+/// Note: bundles B and A use non-overlapping coins (coin_x vs. coin_y) so they
+/// coexist without triggering CFR conflict detection.  The dedup feature is what
+/// would otherwise make a same-spend waiter possible; disabling it means the
+/// dedup_index is never populated, regardless of eligibility.
 #[test]
 fn vv_req_pol_008_feature_disabled() {
     let config = MempoolConfig::default().with_identical_spend_dedup(false);
     let mempool = Mempool::with_config(DIG_TESTNET, config);
 
-    // Submit A (eligible pass-through bundle)
+    // Submit A: coin_x (eligible pass-through bundle)
     let (bundle_a, cr_a, coin_x_id, _puzzle, _ph) =
         pass_through_bundle(0x01, 100, Program::default());
     let a_id = bundle_a.name();
@@ -459,8 +464,11 @@ fn vv_req_pol_008_feature_disabled() {
         "effective_virtual_cost should equal virtual_cost when feature disabled"
     );
 
-    // Submit B (same key) — should also not get cost saving
-    let (bundle_b, cr_b) = pass_through_bundle_2(0x01, 0x02, 100, Program::default());
+    // Submit B: coin_y only (no coin overlap with A — avoids CFR conflict).
+    // Even though B is dedup-eligible, the disabled feature means dedup_index
+    // is never populated and no cost_saving is recorded.
+    let (bundle_b, cr_b, coin_y_id, _puzzle_b, _ph_b) =
+        pass_through_bundle(0x02, 100, Program::default());
     let b_id = bundle_b.name();
     mempool.submit(bundle_b, &cr_b, 0, 0).unwrap();
 
@@ -468,24 +476,39 @@ fn vv_req_pol_008_feature_disabled() {
     assert_eq!(item_b.cost_saving, 0, "B cost_saving should be 0 when feature disabled");
     assert_eq!(item_b.effective_virtual_cost, item_b.virtual_cost);
 
-    // No bearer registered
+    // dedup_index remains empty — no bearers registered
+    assert_eq!(mempool.dedup_index_len(), 0, "dedup_index should remain empty");
+
     let solution_hash = sha256_of(Program::default().as_ref());
     assert_eq!(
         mempool.get_dedup_bearer(&coin_x_id, &solution_hash),
         None,
-        "no bearer when feature disabled"
+        "no bearer for coin_x when feature disabled"
     );
+    assert_eq!(
+        mempool.get_dedup_bearer(&coin_y_id, &solution_hash),
+        None,
+        "no bearer for coin_y when feature disabled"
+    );
+    let _ = b_id; // suppress unused variable warning
 }
 
 // ──────────────────────────────────────────────────────────────────────────
 // Test 6: Different solutions produce separate dedup keys
 // ──────────────────────────────────────────────────────────────────────────
 
-/// Test: Same coin with different solution bytes is NOT deduped.
+/// Test: Same coin with different solution bytes is NOT treated as a dedup waiter.
 ///
 /// Proves POL-008: "Keys are (coin_id, sha256(solution))."
-/// Two bundles spending the same coin but with different solution bytes
-/// produce different sha256 values → separate dedup_index entries → no saving.
+/// Two bundles spending the same coin with DIFFERENT solution bytes produce
+/// different sha256 hashes and therefore different dedup keys.  Because the
+/// solutions differ, the incoming bundle is NOT a waiter — it is a real
+/// conflict and goes through CFR RBF evaluation (CFR-001).
+///
+/// This is stronger proof than two coexisting bundles: the dedup bypass
+/// specifically checks `pool.dedup_index.contains_key(&(coin_id, sol_hash))`.
+/// A different solution yields a different hash, so no entry is found, and
+/// the bundle is correctly routed to RBF.
 #[test]
 fn vv_req_pol_008_different_solutions_not_deduped() {
     let mempool = Mempool::new(DIG_TESTNET);
@@ -496,63 +519,52 @@ fn vv_req_pol_008_different_solutions_not_deduped() {
     // This is valid CLVM and produces a different sha256 from the nil solution.
     let solution_other = Program::new(vec![0xff, 0x01, 0x80].into());
 
-    // Bundle A: coin X with solution_nil
+    // Verify the two solutions have different sha256 hashes (precondition).
+    let hash_nil = sha256_of(solution_nil.as_ref());
+    let hash_other = sha256_of(solution_other.as_ref());
+    assert_ne!(hash_nil, hash_other, "different solutions must hash differently");
+
+    // Bundle A: coin_x with solution_nil
     let (bundle_a, cr_a, coin_x_id, _puzzle, _ph) =
         pass_through_bundle(0x01, 100, solution_nil.clone());
     let a_id = bundle_a.name();
     mempool.submit(bundle_a, &cr_a, 0, 0).unwrap();
 
-    // Bundle B: coin X with solution_other (different solution → different key)
-    // Uses the same coin_id but passes different solution bytes.
-    // CFR-001 not yet implemented, so both can coexist in active pool.
+    // dedup_index: 1 entry — (coin_x.id, hash_nil) → A
+    assert_eq!(mempool.dedup_index_len(), 1, "A is bearer for (coin_x, hash_nil)");
+    assert_eq!(mempool.get_dedup_bearer(&coin_x_id, &hash_nil), Some(a_id));
+
+    // Bundle B: same coin_x but solution_other.
+    // Different hash → dedup_index has no entry for (coin_x, hash_other) → B is NOT
+    // a waiter.  CFR conflict detection fires (coin_x is in coin_index → conflict with A).
+    // B has the same FPC as A → RbfFpcNotHigher.
     let (bundle_b, cr_b, _cid, _puzzle_b, _ph_b) =
         pass_through_bundle(0x01, 100, solution_other.clone());
-    // Note: bundle_b has same coin but different solution → different bundle_id
-    // BUT actually the coin is the same → same coin_id → solution_other is used
-    // Let's verify bundle_b is different from bundle_a:
-    assert_ne!(
-        bundle_b.name(),
-        a_id,
-        "bundles with different solutions should have different IDs"
-    );
     let b_id = bundle_b.name();
-    mempool.submit(bundle_b, &cr_b, 0, 0).unwrap();
+    assert_ne!(b_id, a_id, "different solutions produce different bundle IDs");
 
-    // Both bundles should be in the pool
-    let item_a = mempool.get(&a_id).unwrap();
-    let item_b = mempool.get(&b_id).unwrap();
-
-    // Both should be eligible
-    assert!(item_a.eligible_for_dedup);
-    assert!(item_b.eligible_for_dedup);
-
-    // Bundle B should NOT have cost saving (different solution → different key)
-    assert_eq!(
-        item_b.cost_saving, 0,
-        "B should have no cost_saving — different solution means different dedup key"
+    let result = mempool.submit(bundle_b, &cr_b, 0, 0);
+    assert!(
+        matches!(result, Err(dig_mempool::MempoolError::RbfFpcNotHigher)),
+        "different solution → real conflict → RBF fails; got: {:?}",
+        result
     );
-    assert_eq!(item_b.effective_virtual_cost, item_b.virtual_cost);
 
-    // There should be 2 entries in dedup_index (two different keys)
+    // Pool unchanged: only A remains
+    assert_eq!(mempool.len(), 1, "only A should be in pool");
+    assert!(mempool.get(&a_id).is_some());
+
+    // dedup_index unchanged: only A's key registered (B never reached dedup step)
     assert_eq!(
         mempool.dedup_index_len(),
-        2,
-        "two separate dedup keys should be registered (different solutions)"
+        1,
+        "dedup_index should still have only 1 entry"
     );
-
-    // Verify: different sha256 hashes for the two solutions
-    let hash_nil = sha256_of(solution_nil.as_ref());
-    let hash_other = sha256_of(solution_other.as_ref());
-    assert_ne!(hash_nil, hash_other, "different solutions should hash differently");
-
-    // Each bundle is the bearer of its own key
-    assert_eq!(
-        mempool.get_dedup_bearer(&coin_x_id, &hash_nil),
-        Some(a_id)
-    );
+    // No entry for hash_other (B was rejected before dedup insertion)
     assert_eq!(
         mempool.get_dedup_bearer(&coin_x_id, &hash_other),
-        Some(b_id)
+        None,
+        "B was rejected — no bearer registered for solution_other"
     );
 }
 

@@ -6,47 +6,69 @@ items:
   - id: CFR-001
     section: "Conflict Detection"
     summary: "Conflict detection via coin_index (active pool only)"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-001.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cfr_001_no_conflict_empty_pool
+      - vv_req_cfr_001_single_conflict_detected
+      - vv_req_cfr_001_multiple_conflicts_detected
+      - vv_req_cfr_001_pending_not_conflict
+      - vv_req_cfr_001_conflict_cache_not_indexed
+      - vv_req_cfr_001_coin_index_cleaned_on_removal
+    notes: "coin_index HashMap lookup for each removal; active pool only. Dedup-waiter bypass: if eligible_for_dedup && dedup_index.contains_key((coin_id, sol_hash)), the 'conflict' is a dedup waiter — excluded from RBF evaluation. Matches Chia's dedup special case at mempool_manager.py:270-288."
 
   - id: CFR-002
     section: "RBF Superset Rule"
     summary: "RBF superset rule - new bundle must spend superset of conflicting removals"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-002.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cfr_002_superset_passes
+      - vv_req_cfr_002_missing_removal_fails
+      - vv_req_cfr_002_multiple_conflicts_all_must_be_covered
+    notes: "Every removal of every conflicting bundle must be covered by the new bundle's removals. Superset check iterates all conflicting items. Fails with RbfNotSuperset and caches bundle (CFR-005) on violation."
 
   - id: CFR-003
     section: "RBF Fee-Per-Virtual-Cost"
     summary: "RBF fee-per-virtual-cost must be strictly higher"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-003.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cfr_003_higher_fpc_passes
+      - vv_req_cfr_003_equal_fpc_rejected
+      - vv_req_cfr_003_lower_fpc_rejected
+      - vv_req_cfr_003_aggregate_fpc_compared
+    notes: "MempoolItem::compute_fpc_scaled(fee, vc) used for both new and aggregate conflict FPC. Scaled integer arithmetic (FPC_SCALE = 1_000_000_000_000) — no floating point. Comparison: new_fpc > aggregate_fpc (strict). Equal FPC rejected."
 
   - id: CFR-004
     section: "RBF Minimum Fee Bump"
     summary: "RBF minimum fee bump of MIN_RBF_FEE_BUMP (10M mojos)"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-004.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cfr_004_exact_minimum_bump_passes
+      - vv_req_cfr_004_below_minimum_bump_fails
+      - vv_req_cfr_004_aggregate_fee_bump
+    notes: "required_fee = total_conflict_fees.saturating_add(config.min_rbf_fee_bump). fee < required → RbfBumpTooLow{required, provided}. Default min_rbf_fee_bump = 10_000_000 mojos. Tested with min_rbf_fee_bump=0 for exact boundary tests; default 10M for aggregate test."
 
   - id: CFR-005
     section: "Conflict Cache on RBF Failure"
     summary: "On RBF failure, bundle added to conflict cache if space permits"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-005.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cfr_005_superset_failure_caches_bundle
+      - vv_req_cfr_005_fpc_failure_caches_bundle
+      - vv_req_cfr_005_bump_failure_caches_bundle
+    notes: "self.add_to_conflict_cache(bundle, virtual_cost) called on CFR-002/003/004 failure before returning error. Lock ordering safe: pool.write() → conflict.write() follows POL-010 ordering."
 
   - id: CFR-006
     section: "RBF + CPFP Cascade Eviction"
-    summary: "RBF replacing parent must cascade-evict all CPFP dependents"
-    status: draft
+    summary: "On successful RBF, conflicting items removed from active pool"
+    status: verified
     spec_ref: "docs/requirements/domains/conflict_resolution/specs/CFR-006.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cfr_006_conflicting_item_removed
+      - vv_req_cfr_006_two_conflicts_both_removed
+      - vv_req_cfr_006_coin_index_updated_after_rbf
+    notes: "All conflicting items removed via pool.remove(conflict_id) after RBF passes. coin_index cleaned up by ActivePool::remove(). CPFP cascade eviction (recursive removal of dependents) deferred to CPF-007. New bundle's coin_index entries installed on insertion."
