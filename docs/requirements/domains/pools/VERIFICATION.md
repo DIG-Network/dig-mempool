@@ -4,7 +4,7 @@
 |----|--------|---------|----------------------|
 | [POL-001](NORMATIVE.md#POL-001) | ✅ | Active pool storage | 15 tests: get/contains after submit, len increments, active_items/bundle_ids, stats.active_count, Arc sharing, removals populated, height_added, mempool_coin_creator. ActivePool struct with items/coin_index/mempool_coins HashMaps + accumulators. |
 | [POL-002](NORMATIVE.md#POL-002) | ✅ | Active pool capacity management | 6 tests: no eviction when space available, lowest score evicted, MempoolFull when FPC too low, MempoolFull on empty pool too small, TooManySpends, minimal eviction. ActivePool::evict_for() + is_expiry_protected() scaffold. |
-| [POL-003](NORMATIVE.md#POL-003) | ⚠️ | Expiry protection | Skip expiry-protected items during eviction. Expiring vs expiring FPC comparison. |
+| [POL-003](NORMATIVE.md#POL-003) | ✅ | Expiry protection | 7 tests: protected item skipped by non-expiring new item, far-future expiry evictable, no-expiry items always evictable, expiring evicts lower-FPC expiring, MempoolFull when all protected, configurable window, boundary inclusive. Two-pass evict_for() with is_expiry_protected() gate. |
 | [POL-004](NORMATIVE.md#POL-004) | ⚠️ | Pending pool | Separate HashMap, count + cost limits, PendingPoolFull error. |
 | [POL-005](NORMATIVE.md#POL-005) | ⚠️ | Pending pool deduplication | pending_coin_index for conflict detection, RBF rules. |
 | [POL-006](NORMATIVE.md#POL-006) | ⚠️ | Conflict cache | HashMap<Bytes32, SpendBundle>, count + cost limits, retry on confirmation. |

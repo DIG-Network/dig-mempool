@@ -295,6 +295,32 @@ impl ActivePool {
             self.remove(candidate_id);
         }
 
+        // Pass 2 (POL-003): if still not enough space and the new item is itself
+        // expiry-protected, it may also evict protected items with lower FPC.
+        if self.total_cost.saturating_add(new_item.virtual_cost) > max_total_cost
+            && Self::is_expiry_protected(new_item, current_height, expiry_protection_blocks)
+        {
+            let mut protected: Vec<(u128, Bytes32)> = self
+                .items
+                .values()
+                .filter(|item| {
+                    Self::is_expiry_protected(item, current_height, expiry_protection_blocks)
+                })
+                .map(|item| (item.descendant_score, item.spend_bundle_id))
+                .collect();
+            protected.sort_by_key(|(score, _)| *score);
+
+            for (score, candidate_id) in &protected {
+                if self.total_cost.saturating_add(new_item.virtual_cost) <= max_total_cost {
+                    break;
+                }
+                if new_item.fee_per_virtual_cost_scaled <= *score {
+                    return Err(MempoolError::MempoolFull);
+                }
+                self.remove(candidate_id);
+            }
+        }
+
         // Final guard: did eviction free enough space?
         if self.total_cost.saturating_add(new_item.virtual_cost) > max_total_cost {
             return Err(MempoolError::MempoolFull);
@@ -316,7 +342,7 @@ impl ActivePool {
         protection_blocks: u64,
     ) -> bool {
         if let Some(abh) = item.assert_before_height {
-            return abh <= current_height.saturating_add(protection_blocks);
+            return abh > current_height && abh <= current_height.saturating_add(protection_blocks);
         }
         false
     }
