@@ -51,10 +51,11 @@ items:
   - id: API-006
     section: "Result Types"
     summary: "MempoolStats struct with all fields"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/crate_api/specs/API-006.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_api_006
+    notes: "14 fields, Clone+Debug, empty() constructor, all fields documented"
 
   - id: API-007
     section: "Extension Traits"

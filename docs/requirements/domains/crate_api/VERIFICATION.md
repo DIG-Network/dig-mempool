@@ -7,7 +7,7 @@
 | [API-003](NORMATIVE.md#API-003) | ✅ | MempoolConfig builder | 8 tests: all defaults match spec table, builder chaining, preserves unset, 17 with_* methods, Mempool integration, Clone, max_total_cost=8.25T, feature flags. |
 | [API-004](NORMATIVE.md#API-004) | ✅ | MempoolError enum | 7 tests: all 24 variants constructible, Clone round-trip, PartialEq equality/inequality, Display formatting, From\<ValidationError\> conversion, Error trait, structured data types. |
 | [API-005](NORMATIVE.md#API-005) | ✅ | SubmitResult enum | 6 tests: Success/Pending variants, pattern matching, inside Result, Clone, Debug. |
-| [API-006](NORMATIVE.md#API-006) | ❌ | MempoolStats struct | Unit test: all fields present, stats() returns correct values. |
+| [API-006](NORMATIVE.md#API-006) | ✅ | MempoolStats struct | 6 tests: all 14 fields accessible, empty stats correct, max_cost from config, Clone, Debug, shared-ref callable. |
 | [API-007](NORMATIVE.md#API-007) | ❌ | Extension traits | Unit test: traits implementable, methods callable. |
 | [API-008](NORMATIVE.md#API-008) | ❌ | Query methods | Unit test: all methods callable, return correct types. |
 
