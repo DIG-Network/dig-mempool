@@ -15,7 +15,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 - [x] API-004 — MempoolError enum (Clone + PartialEq, 24 variants)
 - [x] API-005 — SubmitResult enum (Success, Pending)
 - [x] API-006 — MempoolStats struct (13 fields)
-- [ ] API-007 — Extension traits (AdmissionPolicy, BlockSelectionStrategy, MempoolEventHook)
+- [x] API-007 — Extension traits (AdmissionPolicy, BlockSelectionStrategy, MempoolEventHook)
 - [ ] API-008 — Query methods (get, contains, active_items, stats, etc.)
 
 ## Phase 1: Admission Pipeline
