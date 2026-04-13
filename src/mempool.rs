@@ -29,12 +29,17 @@
 //! [mempool.py:94]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool.py#L94
 //! [mempool_manager.py:295]: https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L295
 
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
+use dig_clvm::Bytes32;
 use dig_constants::NetworkConstants;
 
 use crate::config::MempoolConfig;
+use crate::item::MempoolItem;
 use crate::stats::MempoolStats;
+
+// CoinRecord re-exported for get_mempool_coin_record return type.
+use dig_clvm::CoinRecord;
 
 /// Fee-prioritized, conflict-aware transaction mempool.
 ///
@@ -145,5 +150,116 @@ impl Mempool {
     /// See: [`MempoolStats`] and [API-006](docs/requirements/domains/crate_api/specs/API-006.md).
     pub fn stats(&self) -> MempoolStats {
         MempoolStats::empty(self.config.max_total_cost)
+    }
+
+    // ── Query Methods (API-008) ──
+    //
+    // These methods provide read-only access to mempool state.
+    // All use `&self` (not `&mut self`) and acquire read locks only,
+    // enabling concurrent access alongside other reads.
+    //
+    // Currently return empty/default values since the pool data structures
+    // (HashMap, coin_index, dependency graph) aren't built yet.
+    // Behavioral implementations will be added in Phase 2 (POL-001+).
+    //
+    // See: [API-008](docs/requirements/domains/crate_api/specs/API-008.md)
+
+    /// Look up an active mempool item by its spend bundle ID.
+    ///
+    /// Returns `None` if the bundle ID is not in the active pool.
+    /// The returned `Arc<MempoolItem>` is a cheap reference-counted pointer.
+    pub fn get(&self, _bundle_id: &Bytes32) -> Option<Arc<MempoolItem>> {
+        // TODO: Look up in active pool HashMap (POL-001)
+        None
+    }
+
+    /// Check whether a bundle ID exists in any pool (active, pending, conflict).
+    ///
+    /// Returns `true` if found in any pool. Used for dedup checks and
+    /// external status queries.
+    pub fn contains(&self, _bundle_id: &Bytes32) -> bool {
+        // TODO: Check active + pending + conflict (POL-001, POL-004, POL-006)
+        false
+    }
+
+    /// Return all active (non-pending) bundle IDs.
+    ///
+    /// The order is not guaranteed. Use `select_for_block()` for ordered selection.
+    pub fn active_bundle_ids(&self) -> Vec<Bytes32> {
+        // TODO: Collect keys from active pool HashMap (POL-001)
+        vec![]
+    }
+
+    /// Return all pending (timelocked) bundle IDs.
+    pub fn pending_bundle_ids(&self) -> Vec<Bytes32> {
+        // TODO: Collect keys from pending pool (POL-004)
+        vec![]
+    }
+
+    /// Return all active mempool items as Arc references.
+    ///
+    /// Cheap to call — Arc clones are pointer copies.
+    pub fn active_items(&self) -> Vec<Arc<MempoolItem>> {
+        // TODO: Collect values from active pool HashMap (POL-001)
+        vec![]
+    }
+
+    /// Return the direct dependents (children) of a bundle.
+    ///
+    /// A dependent is a bundle that spends a coin created by the given bundle.
+    /// Returns empty vec if the bundle has no dependents or doesn't exist.
+    /// See: [CPF-002](docs/requirements/domains/cpfp/specs/CPF-002.md)
+    pub fn dependents_of(&self, _bundle_id: &Bytes32) -> Vec<Arc<MempoolItem>> {
+        // TODO: Look up in dependents graph (CPF-002)
+        vec![]
+    }
+
+    /// Return all ancestors (parents, grandparents, ...) of a bundle.
+    ///
+    /// Walks the dependency chain transitively. Used for CPFP package
+    /// analysis and cascade eviction planning.
+    /// See: [CPF-002](docs/requirements/domains/cpfp/specs/CPF-002.md)
+    pub fn ancestors_of(&self, _bundle_id: &Bytes32) -> Vec<Arc<MempoolItem>> {
+        // TODO: Walk dependencies graph transitively (CPF-002)
+        vec![]
+    }
+
+    /// Number of timelocked items in the pending pool.
+    pub fn pending_len(&self) -> usize {
+        // TODO: Read from pending pool (POL-004)
+        0
+    }
+
+    /// Number of items in the conflict retry cache.
+    pub fn conflict_len(&self) -> usize {
+        // TODO: Read from conflict cache (POL-006)
+        0
+    }
+
+    /// Look up a coin created by an active mempool item.
+    ///
+    /// Returns a synthetic `CoinRecord` suitable for use in a subsequent
+    /// `submit()` call (CPFP). The synthetic record uses the parent item's
+    /// `height_added` as `confirmed_block_index`.
+    ///
+    /// Returns `None` if the coin was not created by any active item.
+    /// Note: TOCTOU safe — if the parent is evicted between this call and
+    /// `submit()`, Phase 2 will reject with `CoinNotFound`.
+    ///
+    /// See: [SPEC.md Section 3.3](docs/resources/SPEC.md) — CPFP Coin Queries
+    pub fn get_mempool_coin_record(&self, _coin_id: &Bytes32) -> Option<CoinRecord> {
+        // TODO: Look up in mempool_coins index (CPF-001)
+        None
+    }
+
+    /// Look up which active mempool item created a given coin.
+    ///
+    /// Returns the creating bundle's ID, or `None` if the coin was not
+    /// created by any active mempool item.
+    ///
+    /// See: [SPEC.md Section 3.3](docs/resources/SPEC.md) — CPFP Coin Queries
+    pub fn get_mempool_coin_creator(&self, _coin_id: &Bytes32) -> Option<Bytes32> {
+        // TODO: Look up in mempool_coins index (CPF-001)
+        None
     }
 }

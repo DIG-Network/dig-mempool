@@ -9,6 +9,6 @@
 | [API-005](NORMATIVE.md#API-005) | ✅ | SubmitResult enum | 6 tests: Success/Pending variants, pattern matching, inside Result, Clone, Debug. |
 | [API-006](NORMATIVE.md#API-006) | ✅ | MempoolStats struct | 6 tests: all 14 fields accessible, empty stats correct, max_cost from config, Clone, Debug, shared-ref callable. |
 | [API-007](NORMATIVE.md#API-007) | ✅ | Extension traits | 8 tests: AdmissionPolicy accept/reject/object-safe, BlockSelectionStrategy impl/object-safe, MempoolEventHook defaults, RemovalReason 7 variants + derives. |
-| [API-008](NORMATIVE.md#API-008) | ❌ | Query methods | Unit test: all methods callable, return correct types. |
+| [API-008](NORMATIVE.md#API-008) | ✅ | Query methods | 13 tests: all 14 methods compile with correct signatures, return empty/default on empty pool, all &self (read-only), CPFP coin queries return Option. |
 
 **Status legend:** ✅ verified · ⚠️ partial · ❌ gap
