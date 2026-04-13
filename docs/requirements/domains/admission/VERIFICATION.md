@@ -9,6 +9,6 @@
 | [ADM-005](NORMATIVE.md#ADM-005) | ✅ | Virtual cost computation | virtual_cost = cost + num_spends * SPEND_PENALTY_COST. CostExceeded if over limit. |
 | [ADM-006](NORMATIVE.md#ADM-006) | ✅ | Timelock resolution | Relative to absolute. ImpossibleTimelocks, Expired, and Pending routing. |
 | [ADM-007](NORMATIVE.md#ADM-007) | ✅ | Dedup/FF flag extraction | Reads ELIGIBLE_FOR_DEDUP and ELIGIBLE_FOR_FF from conditions.flags. |
-| [ADM-008](NORMATIVE.md#ADM-008) | ❌ | Batch submission | Concurrent Phase 1, sequential Phase 2. Results ordered. |
+| [ADM-008](NORMATIVE.md#ADM-008) | ✅ | Batch submission | Concurrent Phase 1, sequential Phase 2. Results ordered. |
 
 **Status legend:** ✅ verified · ⚠️ partial · ❌ gap

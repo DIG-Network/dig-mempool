@@ -588,6 +588,34 @@ impl Mempool {
         self.submit(bundle, coin_records, current_height, current_timestamp)
     }
 
+    /// Validate and submit multiple bundles in batch.
+    ///
+    /// Each bundle goes through the full admission pipeline independently.
+    /// Results are returned in the same order as inputs. Earlier entries in
+    /// the batch can create coins that later entries depend on (CPFP), and
+    /// dedup applies across entries (identical bundles in the same batch
+    /// will have the second rejected as AlreadySeen).
+    ///
+    /// # Concurrency Note
+    ///
+    /// Currently processes sequentially. Parallel Phase 1 (CLVM validation
+    /// across bundles) will be added when rayon or similar is integrated.
+    /// The sequential approach is correct and sufficient for initial release.
+    ///
+    /// See: [ADM-008](docs/requirements/domains/admission/specs/ADM-008.md)
+    pub fn submit_batch(
+        &self,
+        bundles: Vec<SpendBundle>,
+        coin_records: &HashMap<Bytes32, CoinRecord>,
+        current_height: u64,
+        current_timestamp: u64,
+    ) -> Vec<Result<SubmitResult, MempoolError>> {
+        bundles
+            .into_iter()
+            .map(|bundle| self.submit(bundle, coin_records, current_height, current_timestamp))
+            .collect()
+    }
+
     // ── Query Methods (API-008) ──
     //
     // These methods provide read-only access to mempool state.
