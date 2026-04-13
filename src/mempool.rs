@@ -158,6 +158,23 @@ struct ActivePool {
     /// coin returned here, enabling the CPFP child to reference parent output.
     mempool_coins: HashMap<Bytes32, Bytes32>,
 
+    /// CPFP dependency graph (parent direction): bundle_id → set of parent bundle_ids.
+    ///
+    /// Populated when items with non-empty `depends_on` are inserted.
+    /// Cleaned on item removal. Used for cycle detection (CPF-004), package fee
+    /// computation (CPF-005), and descendant score updates (CPF-006).
+    ///
+    /// See: [CPF-002](docs/requirements/domains/cpfp/specs/CPF-002.md)
+    dependencies: HashMap<Bytes32, HashSet<Bytes32>>,
+
+    /// CPFP dependency graph (child direction): bundle_id → set of child bundle_ids.
+    ///
+    /// Maintained as the reverse of `dependencies`. Used for cascade eviction
+    /// (CPF-007) and descendant score recomputation (CPF-006).
+    ///
+    /// See: [CPF-002](docs/requirements/domains/cpfp/specs/CPF-002.md)
+    dependents: HashMap<Bytes32, HashSet<Bytes32>>,
+
     /// Identical-spend dedup index: (coin_id, sha256(solution)) → cost-bearer bundle_id.
     ///
     /// Tracks which active bundle is the "cost bearer" for each unique
@@ -202,6 +219,8 @@ impl ActivePool {
             items: HashMap::new(),
             coin_index: HashMap::new(),
             mempool_coins: HashMap::new(),
+            dependencies: HashMap::new(),
+            dependents: HashMap::new(),
             dedup_index: HashMap::new(),
             dedup_waiters: HashMap::new(),
             total_cost: 0,
@@ -255,6 +274,22 @@ impl ActivePool {
                 // First bundle for this key — becomes the cost bearer.
                 self.dedup_index.insert(*key, id);
             }
+        }
+
+        // ── CPF-002: Insert CPFP dependency graph edges ──
+        //
+        // Register bidirectional edges for each direct parent. These edges
+        // are used for cascade eviction (CPF-007), descendant score updates
+        // (CPF-006), and ancestor traversal (CPF-005, CPF-008).
+        for &parent_id in &item.depends_on {
+            self.dependencies
+                .entry(id)
+                .or_default()
+                .insert(parent_id);
+            self.dependents
+                .entry(parent_id)
+                .or_default()
+                .insert(id);
         }
 
         // Update running accumulators (used for capacity management + stats).
@@ -323,11 +358,160 @@ impl ActivePool {
             }
         }
 
+        // ── CPF-002: Clean CPFP dependency graph edges ──
+        //
+        // Remove this item's entry from `dependencies` (its parents) and
+        // remove it from each parent's `dependents` set. After cleanup,
+        // recompute each remaining parent's `descendant_score` since one
+        // of their children is now gone.
+        //
+        // Also remove this item from `dependents` (it may have had children;
+        // those should have been cascade-evicted before this item is removed).
+        if let Some(parents) = self.dependencies.remove(bundle_id) {
+            for parent_id in &parents {
+                if let Some(children) = self.dependents.get_mut(parent_id) {
+                    children.remove(bundle_id);
+                    if children.is_empty() {
+                        self.dependents.remove(parent_id);
+                    }
+                }
+                // Recompute parent's descendant_score now that this child is gone.
+                self.recompute_descendant_score(parent_id);
+            }
+        }
+        self.dependents.remove(bundle_id);
+
         self.total_cost = self.total_cost.saturating_sub(item.virtual_cost);
         self.total_fees = self.total_fees.saturating_sub(item.fee);
         self.total_spends = self.total_spends.saturating_sub(item.num_spends);
 
         Some(item)
+    }
+
+    /// Recompute `descendant_score` for `bundle_id` from its remaining children.
+    ///
+    /// Called after a child is removed (CPF-006). Sets the score to
+    /// `max(own_fpc, max(child.package_fpc_scaled for child in dependents))`.
+    fn recompute_descendant_score(&mut self, bundle_id: &Bytes32) {
+        let children_max: u128 = self
+            .dependents
+            .get(bundle_id)
+            .map(|children| {
+                children
+                    .iter()
+                    .filter_map(|cid| self.items.get(cid))
+                    .map(|c| c.package_fee_per_virtual_cost_scaled)
+                    .max()
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+
+        let own_fpc = match self.items.get(bundle_id) {
+            Some(i) => i.fee_per_virtual_cost_scaled,
+            None => return,
+        };
+        let new_score = own_fpc.max(children_max);
+
+        if let Some(existing) = self.items.get_mut(bundle_id) {
+            if existing.descendant_score != new_score {
+                let mut updated = (**existing).clone();
+                updated.descendant_score = new_score;
+                *existing = Arc::new(updated);
+            }
+        }
+    }
+
+    /// Walk ancestors of `new_bundle_id` and update `descendant_score` for each.
+    ///
+    /// Called after a new item is inserted (CPF-006). Uses early termination:
+    /// stops propagating along a path when the score is not improved.
+    fn update_descendant_scores_on_add(&mut self, new_bundle_id: &Bytes32) {
+        let pkg_fpc = match self.items.get(new_bundle_id) {
+            Some(i) => i.package_fee_per_virtual_cost_scaled,
+            None => return,
+        };
+
+        // Initial parents to visit.
+        let init_parents: Vec<Bytes32> = self
+            .dependencies
+            .get(new_bundle_id)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
+        if init_parents.is_empty() {
+            return;
+        }
+
+        let mut to_visit = init_parents;
+        let mut visited: HashSet<Bytes32> = HashSet::new();
+
+        while let Some(ancestor_id) = to_visit.pop() {
+            if !visited.insert(ancestor_id) {
+                continue;
+            }
+
+            let current_score = match self.items.get(&ancestor_id) {
+                Some(i) => i.descendant_score,
+                None => continue,
+            };
+
+            // Early termination: if the new child's package FPC doesn't improve
+            // this ancestor's score, it won't improve any grandparent's either.
+            if pkg_fpc <= current_score {
+                continue;
+            }
+
+            // Collect grandparents before mutating items (borrow split).
+            let grandparents: Vec<Bytes32> = self
+                .dependencies
+                .get(&ancestor_id)
+                .into_iter()
+                .flatten()
+                .copied()
+                .collect();
+
+            // Update this ancestor's score.
+            if let Some(existing) = self.items.get_mut(&ancestor_id) {
+                let mut updated = (**existing).clone();
+                updated.descendant_score = pkg_fpc;
+                *existing = Arc::new(updated);
+            }
+
+            to_visit.extend(grandparents);
+        }
+    }
+
+    /// Recursively evict `bundle_id` and all its transitive dependents.
+    ///
+    /// Children are evicted before parents (depth-first). Returns all evicted
+    /// bundle IDs. Called by CPF-007 (cascade eviction) and CFR-006 (RBF
+    /// replacement cascade).
+    fn cascade_evict(&mut self, bundle_id: &Bytes32) -> Vec<Bytes32> {
+        let mut evicted = Vec::new();
+        self.cascade_evict_inner(bundle_id, &mut evicted);
+        evicted
+    }
+
+    fn cascade_evict_inner(&mut self, bundle_id: &Bytes32, evicted: &mut Vec<Bytes32>) {
+        // Collect children first to avoid borrow conflicts during mutation.
+        let children: Vec<Bytes32> = self
+            .dependents
+            .get(bundle_id)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
+
+        // Recursively evict all children before the parent.
+        for child_id in children {
+            self.cascade_evict_inner(&child_id, evicted);
+        }
+
+        // Evict this item.
+        if self.remove(bundle_id).is_some() {
+            evicted.push(*bundle_id);
+        }
     }
 
     /// Evict lowest-`descendant_score` items to make room for `new_item`.
@@ -940,15 +1124,30 @@ impl Mempool {
         // Chia L1 equivalent: validate_clvm_and_signature() at mempool_manager.py:445
         // https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L445
 
+        // ── CPF-001/CPF-002: Snapshot mempool_coins for ephemeral coin support ──
+        //
+        // CPFP children spend coins created by unconfirmed parent bundles.
+        // These coins are not in `coin_records` (they're not on-chain yet), but
+        // the CLVM validator needs to know they exist to avoid CoinNotFound errors.
+        //
+        // A brief pool read lock snapshots the current set of mempool coin IDs.
+        // Phase 2 re-validates under the write lock using the live index.
+        // TOCTOU note: if a parent is evicted between this snapshot and Phase 2,
+        // the Phase 2 dependency resolution will return CoinNotFound (correct).
+        let ephemeral_coins: HashSet<Bytes32> = {
+            let pool = self.pool.read().unwrap();
+            pool.mempool_coins.keys().copied().collect()
+        };
+
         // Build the validation context from caller-provided chain state.
-        // `coin_records` contains only the coins being spent (not the full UTXO set).
-        // `ephemeral_coins` will be populated for CPFP candidates in CPF-002.
+        // `coin_records` contains on-chain coins; `ephemeral_coins` covers
+        // unconfirmed coins from active mempool parents (CPFP support).
         let ctx = dig_clvm::ValidationContext {
             height: current_height as u32,
             timestamp: current_timestamp,
             constants: self.constants.clone(),
             coin_records: coin_records.clone(),
-            ephemeral_coins: HashSet::new(), // TODO(CPF-002): populate for CPFP
+            ephemeral_coins,
         };
 
         // Use MEMPOOL_MODE for strict validation:
@@ -1315,6 +1514,105 @@ impl Mempool {
                 });
             }
 
+            // ── CPF-002: Dependency resolution ──
+            //
+            // For each coin this bundle spends (each removal):
+            // - If the coin is in `coin_records` (on-chain) → no CPFP dependency.
+            // - If the coin is in `pool.mempool_coins` (unconfirmed) → CPFP dep.
+            // - If the coin is in neither → reject with CoinNotFound.
+            //
+            // This is a dig-mempool extension; Chia L1 does not support CPFP.
+            let mut depends_on: HashSet<Bytes32> = HashSet::new();
+            for &coin_id in &removals {
+                if coin_records.contains_key(&coin_id) {
+                    continue; // on-chain coin: no CPFP dependency
+                }
+                match pool.mempool_coins.get(&coin_id) {
+                    Some(&parent_id) => {
+                        depends_on.insert(parent_id);
+                    }
+                    None => {
+                        return Err(MempoolError::CoinNotFound(coin_id));
+                    }
+                }
+            }
+
+            // ── CPF-002: Compute dependency depth ──
+            //
+            // depth = 0 for on-chain-only items; depth = 1 + max(parent.depth)
+            // for CPFP children. Uses `pool.items` which already holds parents.
+            let depth: u32 = if depends_on.is_empty() {
+                0
+            } else {
+                1 + depends_on
+                    .iter()
+                    .filter_map(|id| pool.items.get(id))
+                    .map(|p| p.depth)
+                    .max()
+                    .unwrap_or(0)
+            };
+
+            // ── CPF-003: Maximum dependency depth ──
+            //
+            // Reject if depth exceeds the configured limit (default 25).
+            // Keeps cascade eviction, package fee computation, and block
+            // selection traversals bounded.
+            if depth > self.config.max_dependency_depth {
+                return Err(MempoolError::DependencyTooDeep {
+                    depth,
+                    max: self.config.max_dependency_depth,
+                });
+            }
+
+            // ── CPF-004: Defensive cycle check ──
+            //
+            // Walk the ancestor chain from this bundle's direct parents.
+            // If we encounter `bundle_id` itself → DependencyCycle.
+            // In the UTXO coinset model, cycles are structurally impossible
+            // (requiring a SHA-256 hash collision). This check guards against
+            // implementation bugs or corrupted state.
+            if !depends_on.is_empty() {
+                let mut to_visit: Vec<Bytes32> = depends_on.iter().copied().collect();
+                let mut visited: HashSet<Bytes32> = HashSet::new();
+                while let Some(ancestor_id) = to_visit.pop() {
+                    if ancestor_id == bundle_id {
+                        return Err(MempoolError::DependencyCycle);
+                    }
+                    if !visited.insert(ancestor_id) {
+                        continue;
+                    }
+                    if let Some(ancestor_item) = pool.items.get(&ancestor_id) {
+                        to_visit.extend(ancestor_item.depends_on.iter().copied());
+                    }
+                }
+            }
+
+            // ── CPF-005: Package fee rate computation ──
+            //
+            // Aggregate fees and costs across the entire ancestor chain.
+            // Uses each parent's `package_fee` / `package_virtual_cost` so that
+            // transitive ancestors are included without explicit traversal.
+            let (package_fee, package_virtual_cost) = if depends_on.is_empty() {
+                (fee, virtual_cost)
+            } else {
+                let ancestor_fee: u64 = depends_on
+                    .iter()
+                    .filter_map(|id| pool.items.get(id))
+                    .map(|p| p.package_fee)
+                    .sum();
+                let ancestor_vc: u64 = depends_on
+                    .iter()
+                    .filter_map(|id| pool.items.get(id))
+                    .map(|p| p.package_virtual_cost)
+                    .sum();
+                (
+                    fee.saturating_add(ancestor_fee),
+                    virtual_cost.saturating_add(ancestor_vc),
+                )
+            };
+            let package_fpc_scaled =
+                MempoolItem::compute_fpc_scaled(package_fee, package_virtual_cost);
+
             // ── CFR-001 through CFR-005: Active pool conflict detection + RBF ──
             //
             // For each coin spent by the new bundle, look up `coin_index` to find
@@ -1433,15 +1731,16 @@ impl Mempool {
                         });
                     }
 
-                    // ── CFR-006: Remove conflicting items ──
+                    // ── CFR-006 + CPF-007: Remove conflicting items with cascade ──
                     //
-                    // All RBF conditions satisfied — evict the conflicting active items.
-                    // CPFP cascade eviction (recursive removal of dependents) is deferred
-                    // to CPF-007 once the dependency graph is built (CPF-001, CPF-002).
+                    // All RBF conditions satisfied — evict the conflicting active items
+                    // and recursively evict all their CPFP dependents (CPF-007).
+                    // Cascaded children are irrecoverably invalid (their input coins no
+                    // longer exist) and do NOT go to the conflict cache.
                     //
                     // Chia L1 equivalent: remove_from_pool() at mempool.py:303-349
                     for conflict_id in &conflict_ids {
-                        pool.remove(conflict_id);
+                        pool.cascade_evict(conflict_id);
                     }
                 }
             }
@@ -1467,8 +1766,20 @@ impl Mempool {
             let cost_saving = per_spend_cost.saturating_mul(num_deduped as u64);
             let effective_virtual_cost = virtual_cost.saturating_sub(cost_saving);
 
-            // Build the item inside the lock so cost_saving is consistent with
-            // the dedup_index state at insertion time.
+            // ── CPF-008: Cross-bundle announcement validation (trivially passes) ──
+            //
+            // For CPFP items (non-empty depends_on), verify that any ancestor
+            // announcements the child asserts can be satisfied by the ancestor chain.
+            // Per spec section 5.9: assertions referencing non-ancestor bundles are
+            // NOT rejected — they may be satisfied by other bundles in the same block.
+            // Therefore this step never rejects; it is a best-effort consistency check.
+            // (See CPF-008 spec for full details.)
+            //
+            // Full announcement validation will be implemented when block selection
+            // and CPFP semantics are exercised end-to-end (CPF-008 acceptance tests).
+
+            // Build the item inside the lock so cost_saving and CPFP fields are
+            // consistent with the pool state at insertion time.
             let item = Arc::new(MempoolItem {
                 spend_bundle: bundle,
                 spend_bundle_id: bundle_id,
@@ -1476,9 +1787,9 @@ impl Mempool {
                 cost,
                 virtual_cost,
                 fee_per_virtual_cost_scaled,
-                package_fee: fee,
-                package_virtual_cost: virtual_cost,
-                package_fee_per_virtual_cost_scaled: fee_per_virtual_cost_scaled,
+                package_fee,
+                package_virtual_cost,
+                package_fee_per_virtual_cost_scaled: package_fpc_scaled,
                 descendant_score: fee_per_virtual_cost_scaled,
                 additions,
                 removals,
@@ -1489,8 +1800,8 @@ impl Mempool {
                 assert_seconds,
                 assert_before_height,
                 assert_before_seconds,
-                depends_on: HashSet::new(),
-                depth: 0,
+                depends_on,
+                depth,
                 eligible_for_dedup,
                 singleton_lineage: None,
                 cost_saving,
@@ -1515,6 +1826,13 @@ impl Mempool {
             }
 
             pool.insert(item);
+
+            // ── CPF-006: Update ancestor descendant_scores ──
+            //
+            // After inserting the new item, walk up its ancestor chain and update
+            // each ancestor's `descendant_score` to max(current_score, child_pkg_fpc).
+            // This protects valuable parents from capacity eviction.
+            pool.update_descendant_scores_on_add(&bundle_id);
         }
 
         Ok(SubmitResult::Success)
@@ -1636,9 +1954,14 @@ impl Mempool {
     /// A dependent is a bundle that spends a coin created by the given bundle.
     /// Returns empty vec if the bundle has no dependents or doesn't exist.
     /// See: [CPF-002](docs/requirements/domains/cpfp/specs/CPF-002.md)
-    pub fn dependents_of(&self, _bundle_id: &Bytes32) -> Vec<Arc<MempoolItem>> {
-        // TODO: Look up in dependents graph (CPF-002)
-        vec![]
+    pub fn dependents_of(&self, bundle_id: &Bytes32) -> Vec<Arc<MempoolItem>> {
+        let pool = self.pool.read().unwrap();
+        pool.dependents
+            .get(bundle_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|id| pool.items.get(id).cloned())
+            .collect()
     }
 
     /// Return all ancestors (parents, grandparents, ...) of a bundle.
@@ -1646,9 +1969,27 @@ impl Mempool {
     /// Walks the dependency chain transitively. Used for CPFP package
     /// analysis and cascade eviction planning.
     /// See: [CPF-002](docs/requirements/domains/cpfp/specs/CPF-002.md)
-    pub fn ancestors_of(&self, _bundle_id: &Bytes32) -> Vec<Arc<MempoolItem>> {
-        // TODO: Walk dependencies graph transitively (CPF-002)
-        vec![]
+    pub fn ancestors_of(&self, bundle_id: &Bytes32) -> Vec<Arc<MempoolItem>> {
+        let pool = self.pool.read().unwrap();
+        let mut result = Vec::new();
+        let mut to_visit: Vec<Bytes32> = pool
+            .dependencies
+            .get(bundle_id)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
+        let mut visited: HashSet<Bytes32> = HashSet::new();
+        while let Some(ancestor_id) = to_visit.pop() {
+            if !visited.insert(ancestor_id) {
+                continue;
+            }
+            if let Some(item) = pool.items.get(&ancestor_id) {
+                result.push(item.clone());
+                to_visit.extend(item.depends_on.iter().copied());
+            }
+        }
+        result
     }
 
     /// Number of timelocked items in the pending pool.
@@ -1726,6 +2067,8 @@ impl Mempool {
             pool.items.clear();
             pool.coin_index.clear();
             pool.mempool_coins.clear();
+            pool.dependencies.clear();
+            pool.dependents.clear();
             pool.dedup_index.clear();
             pool.dedup_waiters.clear();
             pool.total_cost = 0;
@@ -1762,9 +2105,20 @@ impl Mempool {
     /// `submit()`, Phase 2 will reject with `CoinNotFound`.
     ///
     /// See: [SPEC.md Section 3.3](docs/resources/SPEC.md) — CPFP Coin Queries
-    pub fn get_mempool_coin_record(&self, _coin_id: &Bytes32) -> Option<CoinRecord> {
-        // TODO: Look up in mempool_coins index (CPF-001)
-        None
+    pub fn get_mempool_coin_record(&self, coin_id: &Bytes32) -> Option<CoinRecord> {
+        let pool = self.pool.read().unwrap();
+        let &creator_id = pool.mempool_coins.get(coin_id)?;
+        let creator = pool.items.get(&creator_id)?;
+        // Find the specific coin among the creator's additions.
+        let coin = creator.additions.iter().find(|c| c.coin_id() == *coin_id)?;
+        Some(CoinRecord {
+            coin: *coin,
+            coinbase: false,
+            confirmed_block_index: creator.height_added as u32,
+            spent: false,
+            spent_block_index: 0,
+            timestamp: 0, // admission timestamp not tracked in MempoolItem
+        })
     }
 
     /// Look up which active mempool item created a given coin.

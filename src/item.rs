@@ -93,6 +93,7 @@ pub struct SingletonLineageInfo {
 /// - [`config::SPEND_PENALTY_COST`] — penalty per spend in virtual cost
 /// - [`config::FPC_SCALE`] — scaling factor for integer FPC arithmetic
 /// - [SPEC.md Section 2.2](../docs/resources/SPEC.md)
+#[derive(Debug, Clone)]
 pub struct MempoolItem {
     // ── Identity ──
     /// The original spend bundle submitted by the caller.

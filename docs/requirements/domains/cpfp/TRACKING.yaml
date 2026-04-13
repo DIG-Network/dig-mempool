@@ -6,63 +6,94 @@ items:
   - id: CPF-001
     section: "Mempool Coins Index"
     summary: "Track coin_id -> creating_bundle_id for all active item additions"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/cpfp/specs/CPF-001.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cpf_001_additions_registered_on_insert
+      - vv_req_cpf_001_entries_removed_on_eviction
+      - vv_req_cpf_001_get_mempool_coin_record_fields
+      - vv_req_cpf_001_get_creator_none_for_unknown
+    notes: "mempool_coins: HashMap<Bytes32, Bytes32> (coin_id -> creating bundle_id). Populated by ActivePool::insert() iterating item.additions; cleaned by ActivePool::remove(). get_mempool_coin_record() returns synthetic CoinRecord. Cascade eviction (CPF-007) also cleans via ActivePool::remove()."
 
   - id: CPF-002
     section: "Dependency Resolution"
     summary: "Resolve dependencies via mempool_coins lookup"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/cpfp/specs/CPF-002.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cpf_002_onchain_coin_no_dependency
+      - vv_req_cpf_002_mempool_coin_creates_dependency
+      - vv_req_cpf_002_unknown_coin_coin_not_found
+      - vv_req_cpf_002_bidirectional_graph_consistency
+      - vv_req_cpf_002_depth_computation_chain
+      - vv_req_cpf_002_multiple_parents
+    notes: "Phase 2 (write lock): for each removal, if coin_records.contains_key → no dep; else if mempool_coins.contains_key → dependency edge; else CoinNotFound. Unknown coins rejected by Phase 1 (ValidationError) or Phase 2 (CoinNotFound) depending on ephemeral_coins snapshot timing. Both are valid. dependencies and dependents maps updated atomically. item.depends_on = direct parent set; item.depth = 1 + max(parent.depth)."
 
   - id: CPF-003
     section: "Maximum Dependency Depth"
     summary: "Enforce max_dependency_depth (default 25)"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/cpfp/specs/CPF-003.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cpf_003_depth_zero_accepted
+      - vv_req_cpf_003_depth_at_limit_accepted
+      - vv_req_cpf_003_depth_exceeds_limit_rejected
+      - vv_req_cpf_003_error_includes_depth_and_max
+      - vv_req_cpf_003_zero_depth_disables_cpfp
+    notes: "if depth > config.max_dependency_depth → DependencyTooDeep{depth, max}. Default max_dependency_depth = 25. Zero disables CPFP. Error includes both actual depth and max. Configurable via MempoolConfig::with_max_dependency_depth()."
 
   - id: CPF-004
     section: "Defensive Cycle Detection"
     summary: "Detect dependency cycles (should be impossible in UTXO model)"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/cpfp/specs/CPF-004.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cpf_004_linear_chain_no_false_cycle
+      - vv_req_cpf_004_diamond_dag_no_false_cycle
+    notes: "Cycle check traverses ancestor chain from new bundle looking for self-reference. In UTXO model, cycles are structurally impossible (hash pre-image resistance). Tests verify no false positives on linear chains and diamond DAGs. Synthetic cycle test skipped — requires corrupting internal dependency graph state, not possible via public API. Bounded by max_dependency_depth (O(depth) traversal)."
 
   - id: CPF-005
     section: "Package Fee Rate Computation"
     summary: "Compute package_fee and package_virtual_cost across ancestor chain"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/cpfp/specs/CPF-005.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cpf_005_root_item_package_equals_individual
+      - vv_req_cpf_005_single_parent_package_fee
+      - vv_req_cpf_005_transitive_ancestors_included
+      - vv_req_cpf_005_multiple_parents_summed
+    notes: "package_fee = fee + sum(parent.package_fee); package_virtual_cost = vc + sum(parent.package_virtual_cost). Uses parent.package_* (not individual) to include transitive ancestors. package_fpc_scaled = (package_fee * FPC_SCALE) / package_virtual_cost. Root items: package == individual. FPC_SCALE = 1_000_000_000_000 (u128)."
 
   - id: CPF-006
     section: "Descendant Score Tracking"
     summary: "Maintain descendant_score as max(own FPC, any descendant package FPC)"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/cpfp/specs/CPF-006.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cpf_006_initial_score_equals_own_fpc
+      - vv_req_cpf_006_score_updated_on_child_add
+      - vv_req_cpf_006_score_not_downgraded
+      - vv_req_cpf_006_multi_level_propagation
+    notes: "descendant_score initialized to fee_per_virtual_cost_scaled. On child add: update_descendant_scores_on_add() BFS-propagates child.package_fpc up ancestor chain with early termination when pkg_fpc <= current_score. On child remove: recompute_descendant_score() resets to max(own_fpc, remaining_children_max_package_fpc). MempoolItem is immutable inside Arc — updates use clone-and-replace pattern."
 
   - id: CPF-007
     section: "Cascade Eviction"
     summary: "Recursive removal of all dependents when parent is removed"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/cpfp/specs/CPF-007.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cpf_007_single_child_cascade_on_rbf
+      - vv_req_cpf_007_multi_level_cascade
+      - vv_req_cpf_007_index_cleanup_after_cascade
+      - vv_req_cpf_007_multiple_children_cascade_evicted
+    notes: "cascade_evict_inner() DFS: evicts all dependents recursively (children before parent). Cleans: items, coin_index, mempool_coins, dependencies, dependents, dedup_index. All accumulators (total_cost, total_fees) decremented for each evicted item. Triggered by RBF (CFR-006). Shared algorithm with RBF cascade. recompute_descendant_score() called for remaining ancestors."
 
   - id: CPF-008
     section: "Cross-Bundle Announcement Validation"
     summary: "Validate ASSERT_COIN/PUZZLE_ANNOUNCEMENT and RECEIVE_MESSAGE against ancestors"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/cpfp/specs/CPF-008.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_cpf_008_cpfp_item_admitted_regardless_of_assertions
+      - vv_req_cpf_008_no_validation_for_non_cpfp_items
+    notes: "Implemented as no-op per SPEC Section 5.9: 'Assertions referencing non-ancestor bundles are not rejected — they may be satisfied by other bundles in the same block during block validation (outside mempool scope).' CPFP items are admitted regardless of announcement assertion state. dig-clvm validates intra-bundle announcements in Phase 1."

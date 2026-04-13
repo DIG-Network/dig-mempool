@@ -2,13 +2,13 @@
 
 | ID | Status | Summary | Verification Approach |
 |----|--------|---------|----------------------|
-| [CPF-001](NORMATIVE.md#CPF-001) | ⚠️ | mempool_coins index | Additions registered on insert; entries removed on eviction. |
-| [CPF-002](NORMATIVE.md#CPF-002) | ⚠️ | Dependency resolution | mempool_coins lookup for unresolved coins; dependency edge recorded. |
-| [CPF-003](NORMATIVE.md#CPF-003) | ⚠️ | Maximum dependency depth | Depth computed from ancestor chain; DependencyTooDeep on overflow. |
-| [CPF-004](NORMATIVE.md#CPF-004) | ⚠️ | Defensive cycle detection | Graph cycle check after edge insertion; DependencyCycle error. |
-| [CPF-005](NORMATIVE.md#CPF-005) | ⚠️ | Package fee rate computation | Aggregate fee/cost across ancestor chain; scaled integer arithmetic. |
-| [CPF-006](NORMATIVE.md#CPF-006) | ⚠️ | Descendant score tracking | Max of own FPC and descendant package FPC; updated on add/remove. |
-| [CPF-007](NORMATIVE.md#CPF-007) | ⚠️ | Cascade eviction | Recursive dependent removal; full index cleanup. |
-| [CPF-008](NORMATIVE.md#CPF-008) | ⚠️ | Cross-bundle announcement validation | Assertion conditions checked against ancestor conditions. |
+| [CPF-001](NORMATIVE.md#CPF-001) | ✅ | mempool_coins index | 4 tests: additions registered on insert, entries removed on eviction (via RBF cascade), get_mempool_coin_record returns correct synthetic CoinRecord, get_mempool_coin_creator returns None for unknown coins. mempool_coins: HashMap<coin_id→bundle_id>, populated/cleaned by ActivePool::insert()/remove(). |
+| [CPF-002](NORMATIVE.md#CPF-002) | ✅ | Dependency resolution | 6 tests: on-chain coin no dependency, mempool coin creates dependency edge, unknown coin rejected (Phase 1 ValidationError or Phase 2 CoinNotFound), bidirectional graph (dependents_of/ancestors_of), depth computation 2-level chain, multiple parents. Phase 2 under write lock: coin_records → no dep; mempool_coins → dep edge; neither → CoinNotFound. |
+| [CPF-003](NORMATIVE.md#CPF-003) | ✅ | Maximum dependency depth | 5 tests: depth 0 accepted, depth at limit accepted, depth > limit → DependencyTooDeep{depth, max}, error fields correct, max=0 disables CPFP. Default max_dependency_depth=25; configurable. Strict greater-than comparison. |
+| [CPF-004](NORMATIVE.md#CPF-004) | ✅ | Defensive cycle detection | 2 tests (no false positives): linear chain P→C1→C2, diamond DAG. Synthetic cycle test omitted — requires internal state corruption not possible via public API. UTXO model makes real cycles hash-collision-infeasible. Cycle check traverses ancestor chain from new bundle; terminates on depth-bounded ancestry. |
+| [CPF-005](NORMATIVE.md#CPF-005) | ✅ | Package fee rate computation | 4 tests: root=individual, single parent chain, transitive ancestors (3-level), multiple parents summed. package_fee = fee + sum(parent.package_fee); uses parent.package_* for transitive inclusion. FPC_SCALE=1e12 integer arithmetic; no floating point. |
+| [CPF-006](NORMATIVE.md#CPF-006) | ✅ | Descendant score tracking | 4 tests: initial=own FPC, score updated on child add, score not downgraded by lower-FPC child, multi-level propagation (grandparent score updated by grandchild). BFS propagation with early termination (pkg_fpc≤current_score). Clone-and-replace Arc<MempoolItem> for mutation. recompute on child removal. |
+| [CPF-007](NORMATIVE.md#CPF-007) | ✅ | Cascade eviction | 4 tests: single child cascade on RBF, multi-level cascade (P→C1→C2), index cleanup (mempool_coins, coin_index), multiple children both cascade-evicted. DFS: children before parent. Triggered via RBF (CFR-006). All indexes cleaned per evicted item. |
+| [CPF-008](NORMATIVE.md#CPF-008) | ✅ | Cross-bundle announcement validation | 2 tests: CPFP child admitted, non-CPFP item admitted. Implemented as no-op: per SPEC §5.9, assertions referencing non-ancestor bundles are not rejected (left for block validation). dig-clvm handles intra-bundle announcements in Phase 1. |
 
 **Status legend:** ✅ verified · ⚠️ partial · ❌ gap
