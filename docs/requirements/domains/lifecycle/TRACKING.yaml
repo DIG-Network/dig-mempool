@@ -33,26 +33,29 @@ items:
   - id: LCY-004
     section: "Reset"
     summary: "clear() resets all state for reorg recovery"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-004.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_lcy_004.rs
+    notes: "Implemented in Mempool::clear (src/mempool.rs). 8 tests. Fires on_item_removed(Cleared) for all active and pending items. Hooks and config preserved."
 
   - id: LCY-005
     section: "Event Hooks"
     summary: "MempoolEventHook trait with callback methods"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-005.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_lcy_005.rs
+    notes: "Trait defined in src/traits.rs. Hooks stored in Mempool::hooks (RwLock). fire_hooks() helper with panic catch. All 5 callbacks wired: on_item_added (submit active path), on_item_removed (on_new_block + clear), on_block_selected (select_for_block), on_conflict_cached (add_to_conflict_cache), on_pending_added (submit pending path). 10 tests."
 
   - id: LCY-006
     section: "Event Hooks"
     summary: "RemovalReason enum with all variants"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-006.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_lcy_006.rs
+    notes: "Defined in src/traits.rs with Debug+Clone+PartialEq. All 7 variants: Confirmed, ReplacedByFee{replacement_id}, CascadeEvicted{parent_id}, Expired, CapacityEviction, ExplicitRemoval, Cleared. Exported from lib.rs. 10 tests."
 
   - id: LCY-007
     section: "Persistence"
