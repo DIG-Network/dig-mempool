@@ -1577,6 +1577,14 @@ impl Mempool {
     ) -> RetryBundles {
         let mut cascade_evicted: Vec<Bytes32> = Vec::new();
 
+        // Step 0: Clear the seen cache so that promoted/retry bundles can be resubmitted.
+        //
+        // The seen cache prevents re-validation of bundles seen in the same block cycle.
+        // On a new block boundary, all previously seen hashes are stale — bundles must
+        // be re-evaluated against the new chain state. This matches Chia's behaviour in
+        // `MempoolManager.new_peak()`, which clears `seen_bundle_hashes` at each peak.
+        self.seen_cache.write().unwrap().clear();
+
         // Steps 1 + 2: Remove confirmed + expired items under a single write lock.
         {
             let mut pool = self.pool.write().unwrap();

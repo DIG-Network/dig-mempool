@@ -24,10 +24,11 @@ items:
   - id: LCY-003
     section: "Block Confirmation"
     summary: "Caller workflow: on_new_block -> submit retries -> select_for_block"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/lifecycle/specs/LCY-003.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_lcy_003.rs
+    notes: "Integration tests only — no new implementation. on_new_block() clears seen_cache so resubmission works. 6 tests."
 
   - id: LCY-004
     section: "Reset"

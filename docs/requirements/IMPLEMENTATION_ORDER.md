@@ -85,7 +85,7 @@ After completing a requirement: write tests, verify they pass, update TRACKING.y
 
 - [x] LCY-001 — `on_new_block()` (remove confirmed, cascade evict, remove expired, collect retries)
 - [x] LCY-002 — RetryBundles struct (conflict_retries, pending_promotions, cascade_evicted)
-- [ ] LCY-003 — Caller workflow sequencing (on_new_block -> submit retries -> select_for_block)
+- [x] LCY-003 — Caller workflow sequencing (on_new_block -> submit retries -> select_for_block)
 - [ ] LCY-004 — `clear()` for reorg recovery
 - [ ] LCY-005 — MempoolEventHook trait (5 callbacks, called under write lock)
 - [ ] LCY-006 — RemovalReason enum (7 variants)
