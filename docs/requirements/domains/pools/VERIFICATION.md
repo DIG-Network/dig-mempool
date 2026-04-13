@@ -11,6 +11,6 @@
 | [POL-007](NORMATIVE.md#POL-007) | ✅ | Seen cache | 6 tests: added before CLVM validation, LRU eviction, pending pool check after eviction, conflict cache check, clear resets seen cache, clear resets all pools. Pending + conflict cache checks added to submit() dedup block; clear() method implemented. |
 | [POL-008](NORMATIVE.md#POL-008) | ✅ | Identical spend dedup index | 7 tests: bearer establishment, cost saving for waiter, non-eligible excluded, bearer removal re-assigns, feature disabled, different solutions separate keys, effective cost formula. dedup_index + dedup_waiters in ActivePool; cost_saving/effective_virtual_cost/dedup_keys on MempoolItem; sha256_bytes() helper; per-spend cost approximated as cost/num_spends. Pass-through puzzle ensures eligible_for_dedup=true; nil-puzzle confirms non-eligible path. |
 | [POL-009](NORMATIVE.md#POL-009) | ⚠️ | Singleton tracking | launcher_id -> Vec<bundle_id> in lineage order. |
-| [POL-010](NORMATIVE.md#POL-010) | ⚠️ | Concurrency | RwLock per pool, Mutex for BLS cache, Send + Sync. |
+| [POL-010](NORMATIVE.md#POL-010) | ✅ | Concurrency | 8 tests: Send+Sync compile check, interior mutability (&self for all methods), 8 concurrent readers, concurrent submit+read, concurrent BLS cache access (2 threads both succeed), 4 submitters+4 readers no deadlock (64 inserts), submit_batch 10 bundles all succeed, Phase 1 does not stall readers. pool/pending/conflict/seen_cache as RwLock; bls_cache as Mutex. |
 
 **Status legend:** ✅ verified · ⚠️ partial · ❌ gap

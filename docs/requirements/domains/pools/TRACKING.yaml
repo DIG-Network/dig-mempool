@@ -147,7 +147,15 @@ items:
   - id: POL-010
     section: "Concurrency"
     summary: "RwLock per pool, Mutex for BLS, Send + Sync"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/pools/specs/POL-010.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_pol_010_send_sync_compile_check
+      - vv_req_pol_010_interior_mutability
+      - vv_req_pol_010_concurrent_reads
+      - vv_req_pol_010_concurrent_submit_and_read
+      - vv_req_pol_010_concurrent_bls_cache_access
+      - vv_req_pol_010_lock_ordering_no_deadlock
+      - vv_req_pol_010_batch_correct_insertion
+      - vv_req_pol_010_phase1_does_not_stall_readers
+    notes: "Mempool struct fields: pool/pending/conflict/seen_cache as RwLock, bls_cache as Mutex. All public methods take &self (interior mutability). Send+Sync verified via compile-time generic bound. Concurrent tests: 8 readers, submitter+reader race, 4 submitters+4 readers under load (64 total inserts). BLS mutex test: 2 concurrent submissions both succeed. batch_correct_insertion: submit_batch(10 bundles) → 10 successes. phase1_does_not_stall_readers: reader observes only 4 or 5 items (never stalls) while writer runs CLVM validation."
