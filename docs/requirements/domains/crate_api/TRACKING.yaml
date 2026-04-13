@@ -33,10 +33,11 @@ items:
   - id: API-004
     section: "Error Types"
     summary: "MempoolError enum with Clone + PartialEq"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/crate_api/specs/API-004.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_api_004
+    notes: "24 variants, Clone+PartialEq+thiserror, From<ValidationError> -> String, comprehensive per-variant comments with Chia citations"
 
   - id: API-005
     section: "Result Types"

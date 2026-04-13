@@ -205,6 +205,35 @@ pub enum MempoolError {
     /// Error propagated from `dig_clvm::validate_spend_bundle()`.
     /// Stored as `String` to satisfy `Clone + PartialEq` (Decision #14).
     /// The original `ValidationError` is converted via `.to_string()`.
+    ///
+    /// # Conversion
+    ///
+    /// Use the `From<dig_clvm::ValidationError>` impl (below) to convert:
+    /// ```rust,ignore
+    /// let mempool_err: MempoolError = clvm_err.into();
+    /// ```
     #[error("validation error: {0}")]
     ValidationError(String),
+}
+
+/// Convert a `dig_clvm::ValidationError` into a `MempoolError`.
+///
+/// The upstream `ValidationError` is converted to a `String` via `.to_string()`
+/// because `dig_clvm::ValidationError` does not derive `Clone + PartialEq`,
+/// which are required by `MempoolError` (Design Decision #14).
+///
+/// This conversion is used in the admission pipeline when `dig_clvm::validate_spend_bundle()`
+/// returns an error. The `?` operator automatically applies this conversion:
+///
+/// ```rust,ignore
+/// let result = dig_clvm::validate_spend_bundle(&bundle, &ctx, &cfg, cache)?;
+/// // If validate_spend_bundle returns Err(ValidationError), it becomes
+/// // MempoolError::ValidationError(err.to_string())
+/// ```
+///
+/// See: [ADM-002](docs/requirements/domains/admission/specs/ADM-002.md)
+impl From<dig_clvm::ValidationError> for MempoolError {
+    fn from(e: dig_clvm::ValidationError) -> Self {
+        MempoolError::ValidationError(e.to_string())
+    }
 }
