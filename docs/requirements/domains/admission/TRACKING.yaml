@@ -15,10 +15,11 @@ items:
   - id: ADM-002
     section: "Entry Point"
     summary: "submit() calls dig_clvm::validate_spend_bundle() for CLVM dry-run + BLS verification"
-    status: gap
+    status: verified
     spec_ref: "docs/requirements/domains/admission/specs/ADM-002.md"
-    tests: []
-    notes: ""
+    tests:
+      - vv_req_adm_002
+    notes: "ValidationContext with MEMPOOL_MODE, BlsCache in Mutex, error conversion via From<ValidationError>. 5 tests: empty bundle passes, missing coin rejected, cache reuse, concurrent no-deadlock, error type check."
 
   - id: ADM-003
     section: "Deduplication"
