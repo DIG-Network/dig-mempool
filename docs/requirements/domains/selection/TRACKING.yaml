@@ -6,63 +6,71 @@ items:
   - id: SEL-001
     section: "Entry Point"
     summary: "select_for_block() entry point signature"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/selection/specs/SEL-001.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_sel_001.rs
+    notes: "Implemented in Mempool::select_for_block (src/mempool.rs:1496). 6 tests."
 
   - id: SEL-002
     section: "Pre-Selection Filtering"
     summary: "Exclude expired, future-timelocked items before strategy runs"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/selection/specs/SEL-002.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_sel_002.rs
+    notes: "Implemented in sel_002_is_selectable (src/selection/strategies.rs:34). 7 tests."
 
   - id: SEL-003
     section: "Selection Strategies"
     summary: "Strategy 1: fee-per-cost density sort"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/selection/specs/SEL-003.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_sel_003.rs
+    notes: "Implemented in sel_greedy/SortStrategy::Density (src/selection/strategies.rs:61). 5 tests."
 
   - id: SEL-004
     section: "Selection Strategies"
     summary: "Strategy 2: absolute fee whale sort"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/selection/specs/SEL-004.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_sel_004.rs
+    notes: "Implemented in sel_greedy/SortStrategy::Whale (src/selection/strategies.rs:71). 4 tests."
 
   - id: SEL-005
     section: "Selection Strategies"
     summary: "Strategy 3: compact high-value sort"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/selection/specs/SEL-005.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_sel_005.rs
+    notes: "Implemented in sel_greedy/SortStrategy::Compact (src/selection/strategies.rs:84). 4 tests."
 
   - id: SEL-006
     section: "Selection Strategies"
     summary: "Strategy 4: age-weighted sort"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/selection/specs/SEL-006.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_sel_006.rs
+    notes: "Implemented in sel_greedy/SortStrategy::Age (src/selection/strategies.rs:94). 5 tests."
 
   - id: SEL-007
     section: "Best Selection"
     summary: "Compare 4 strategy candidates and pick best"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/selection/specs/SEL-007.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_sel_007.rs
+    notes: "Implemented in sel_007_best (src/selection/strategies.rs:221). 5 tests."
 
   - id: SEL-008
     section: "Final Ordering"
     summary: "Topological order with FPC tiebreakers"
-    status: draft
+    status: verified
     spec_ref: "docs/requirements/domains/selection/specs/SEL-008.md"
-    tests: []
-    notes: ""
+    tests:
+      - tests/vv_req_sel_008.rs
+    notes: "Implemented in sel_008_topological_order (src/selection/ordering.rs:56). 4 tests."
