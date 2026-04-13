@@ -1315,6 +1315,137 @@ impl Mempool {
                 });
             }
 
+            // ── CFR-001 through CFR-005: Active pool conflict detection + RBF ──
+            //
+            // For each coin spent by the new bundle, look up `coin_index` to find
+            // any existing active bundle spending the same coin. Collect all unique
+            // conflicting bundle IDs.
+            //
+            // If conflicts are found, evaluate RBF rules (CFR-002, CFR-003, CFR-004):
+            //   1. Superset rule: new bundle must spend every coin from each conflict.
+            //   2. FPC strictly higher: new bundle's fee rate exceeds aggregate rate.
+            //   3. Minimum fee bump: absolute fee exceeds sum of conflicts + MIN_RBF.
+            //
+            // On failure: add new bundle to conflict cache (CFR-005) and return error.
+            // On success: remove conflicting items (CFR-006 partial — cascade eviction
+            //   of CPFP dependents is deferred to CPF-007).
+            //
+            // Lock note: `add_to_conflict_cache()` acquires `self.conflict.write()` while
+            // `pool` (self.pool.write()) is held. This follows the POL-010 ordering:
+            //   pool_lock → conflict_lock.
+            //
+            // Chia L1 equivalents:
+            //   check_removals(): mempool_manager.py:229-292
+            //   can_replace():    mempool_manager.py:1077-1126
+            {
+                // Build a set of dedup keys for O(1) lookup during conflict
+                // filtering.  A "conflict" that is actually a dedup-waiter
+                // relationship (same coin, same solution, dedup-eligible) must
+                // NOT go through RBF — the bundle is admitted as a waiter.
+                // Chia handles the same special case at mempool_manager.py:270-288.
+                let dedup_key_set: HashSet<(Bytes32, Bytes32)> =
+                    dedup_keys.iter().copied().collect();
+
+                let mut seen_conflicts = HashSet::new();
+                let conflict_ids: Vec<Bytes32> = removals
+                    .iter()
+                    .filter_map(|coin_id| {
+                        let conflict_bundle_id = pool.coin_index.get(coin_id).copied()?;
+                        // If the incoming bundle's spend of this coin is a dedup match
+                        // (same solution already indexed in dedup_index), treat as a
+                        // waiter, not a conflict — exclude from RBF evaluation.
+                        if !dedup_key_set.is_empty() {
+                            // Find the solution hash for this coin in the incoming bundle.
+                            // dedup_key_set is keyed by (coin_id, sol_hash) so we need
+                            // to search for any entry whose first element is *coin_id*.
+                            let is_dedup = dedup_keys
+                                .iter()
+                                .any(|(cid, sol_hash)| {
+                                    cid == coin_id
+                                        && pool.dedup_index.contains_key(&(*cid, *sol_hash))
+                                });
+                            if is_dedup {
+                                return None; // waiter — not a real conflict
+                            }
+                        }
+                        Some(conflict_bundle_id)
+                    })
+                    .filter(|id| seen_conflicts.insert(*id))
+                    .collect();
+
+                if !conflict_ids.is_empty() {
+                    // Fetch all conflicting items for RBF evaluation.
+                    // coin_index is kept in sync with items, so all IDs resolve.
+                    let conflicting_items: Vec<Arc<MempoolItem>> = conflict_ids
+                        .iter()
+                        .filter_map(|id| pool.items.get(id).cloned())
+                        .collect();
+
+                    let total_conflict_fee: u64 =
+                        conflicting_items.iter().map(|i| i.fee).sum();
+                    let total_conflict_vc: u64 =
+                        conflicting_items.iter().map(|i| i.virtual_cost).sum();
+
+                    // ── CFR-002: Superset rule ──
+                    //
+                    // Every coin spent by any conflicting bundle must also appear in the
+                    // new bundle's removals. Prevents "freeing" a conflicting bundle's
+                    // coins while only partially replacing it.
+                    let new_removals_set: HashSet<Bytes32> =
+                        removals.iter().copied().collect();
+                    for conflict_item in &conflicting_items {
+                        for &coin_id in &conflict_item.removals {
+                            if !new_removals_set.contains(&coin_id) {
+                                self.add_to_conflict_cache(bundle, virtual_cost);
+                                return Err(MempoolError::RbfNotSuperset);
+                            }
+                        }
+                    }
+
+                    // ── CFR-003: FPC must be strictly higher than aggregate ──
+                    //
+                    // The new bundle's fee-per-virtual-cost must strictly exceed the
+                    // combined FPC of all conflicting items. Uses scaled integer
+                    // arithmetic (FPC_SCALE) to avoid floating-point non-determinism.
+                    //
+                    // Chia L1: uses fee_per_cost (float); we use scaled integers.
+                    let conflict_fpc = MempoolItem::compute_fpc_scaled(
+                        total_conflict_fee,
+                        total_conflict_vc,
+                    );
+                    if fee_per_virtual_cost_scaled <= conflict_fpc {
+                        self.add_to_conflict_cache(bundle, virtual_cost);
+                        return Err(MempoolError::RbfFpcNotHigher);
+                    }
+
+                    // ── CFR-004: Minimum absolute fee bump ──
+                    //
+                    // The new bundle's absolute fee must exceed the sum of all conflicting
+                    // fees by at least `min_rbf_fee_bump` (default 10M mojos, matching
+                    // Chia's MEMPOOL_MIN_FEE_INCREASE). Prevents "penny-shaving" DoS.
+                    let required_fee =
+                        total_conflict_fee.saturating_add(self.config.min_rbf_fee_bump);
+                    if fee < required_fee {
+                        self.add_to_conflict_cache(bundle, virtual_cost);
+                        return Err(MempoolError::RbfBumpTooLow {
+                            required: required_fee,
+                            provided: fee,
+                        });
+                    }
+
+                    // ── CFR-006: Remove conflicting items ──
+                    //
+                    // All RBF conditions satisfied — evict the conflicting active items.
+                    // CPFP cascade eviction (recursive removal of dependents) is deferred
+                    // to CPF-007 once the dependency graph is built (CPF-001, CPF-002).
+                    //
+                    // Chia L1 equivalent: remove_from_pool() at mempool.py:303-349
+                    for conflict_id in &conflict_ids {
+                        pool.remove(conflict_id);
+                    }
+                }
+            }
+
             // ── POL-008: Compute cost_saving under pool write lock ──
             //
             // Check how many of this item's dedup keys are already borne by

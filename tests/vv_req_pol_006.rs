@@ -80,7 +80,11 @@ fn nil_bundle(parent_prefix: u8, amount: u64) -> (SpendBundle, HashMap<Bytes32, 
 }
 
 /// Build an AHA bundle (ASSERT_HEIGHT_ABSOLUTE, routes to pending pool).
-fn aha_bundle(parent_prefix: u8, amount: u64, height: u64) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
+fn aha_bundle(
+    parent_prefix: u8,
+    amount: u64,
+    height: u64,
+) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
     let mut a = Allocator::new();
     let nil = a.nil();
     let height_atom = a.new_atom(&encode_uint(height)).unwrap();
@@ -126,14 +130,21 @@ fn aha_bundle(parent_prefix: u8, amount: u64, height: u64) -> (SpendBundle, Hash
 #[test]
 fn vv_req_pol_006_initial_state() {
     let mempool = Mempool::new(DIG_TESTNET);
-    assert_eq!(mempool.conflict_len(), 0, "Conflict cache should start empty");
+    assert_eq!(
+        mempool.conflict_len(),
+        0,
+        "Conflict cache should start empty"
+    );
     assert_eq!(
         mempool.stats().conflict_count,
         0,
         "stats().conflict_count should start at 0"
     );
     let drained = mempool.drain_conflict();
-    assert!(drained.is_empty(), "drain_conflict() on empty cache should return []");
+    assert!(
+        drained.is_empty(),
+        "drain_conflict() on empty cache should return []"
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -177,8 +188,15 @@ fn vv_req_pol_006_count_limit_enforced() {
     // One more — should be silently dropped
     let (bundle, _) = nil_bundle(0xff, 1);
     let inserted = mempool.add_to_conflict_cache(bundle, 1_000);
-    assert!(!inserted, "Insertion past count limit should be silently dropped");
-    assert_eq!(mempool.conflict_len(), 3, "Cache size should not exceed max_conflict_count");
+    assert!(
+        !inserted,
+        "Insertion past count limit should be silently dropped"
+    );
+    assert_eq!(
+        mempool.conflict_len(),
+        3,
+        "Cache size should not exceed max_conflict_count"
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -200,14 +218,24 @@ fn vv_req_pol_006_cost_limit_enforced() {
     let (b1, _) = nil_bundle(0x01, 1);
     let (b2, _) = nil_bundle(0x02, 1);
     assert!(mempool.add_to_conflict_cache(b1, 2_000), "b1 should fit");
-    assert!(mempool.add_to_conflict_cache(b2, 2_000), "b2 should fit (total=4_000 <= 5_000)");
+    assert!(
+        mempool.add_to_conflict_cache(b2, 2_000),
+        "b2 should fit (total=4_000 <= 5_000)"
+    );
     assert_eq!(mempool.conflict_len(), 2);
 
     // Third bundle would push total to 6_000 > 5_000 — should be dropped
     let (b3, _) = nil_bundle(0x03, 1);
     let inserted = mempool.add_to_conflict_cache(b3, 2_000);
-    assert!(!inserted, "Insertion past cost limit should be silently dropped");
-    assert_eq!(mempool.conflict_len(), 2, "Cache size should not exceed cost limit");
+    assert!(
+        !inserted,
+        "Insertion past cost limit should be silently dropped"
+    );
+    assert_eq!(
+        mempool.conflict_len(),
+        2,
+        "Cache size should not exceed cost limit"
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -226,7 +254,11 @@ fn vv_req_pol_006_duplicate_not_inserted() {
     // Insert the same bundle again — should return false (already present)
     let inserted = mempool.add_to_conflict_cache(bundle_copy, 1_000);
     assert!(!inserted, "Duplicate insertion should return false");
-    assert_eq!(mempool.conflict_len(), 1, "Duplicate should not change cache size");
+    assert_eq!(
+        mempool.conflict_len(),
+        1,
+        "Duplicate should not change cache size"
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -251,9 +283,14 @@ fn vv_req_pol_006_drain_returns_all() {
     assert_eq!(mempool.conflict_len(), 3);
 
     let drained = mempool.drain_conflict();
-    assert_eq!(drained.len(), 3, "drain_conflict() should return all 3 bundles");
+    assert_eq!(
+        drained.len(),
+        3,
+        "drain_conflict() should return all 3 bundles"
+    );
 
-    let drained_ids: std::collections::HashSet<Bytes32> = drained.iter().map(|b| b.name()).collect();
+    let drained_ids: std::collections::HashSet<Bytes32> =
+        drained.iter().map(|b| b.name()).collect();
     assert!(drained_ids.contains(&id1));
     assert!(drained_ids.contains(&id2));
     assert!(drained_ids.contains(&id3));
@@ -271,9 +308,16 @@ fn vv_req_pol_006_drain_clears_cache() {
 
     mempool.drain_conflict();
 
-    assert_eq!(mempool.conflict_len(), 0, "Cache should be empty after drain");
+    assert_eq!(
+        mempool.conflict_len(),
+        0,
+        "Cache should be empty after drain"
+    );
     assert_eq!(mempool.stats().conflict_count, 0);
-    assert!(mempool.drain_conflict().is_empty(), "Second drain should return []");
+    assert!(
+        mempool.drain_conflict().is_empty(),
+        "Second drain should return []"
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────
