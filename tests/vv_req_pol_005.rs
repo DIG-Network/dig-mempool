@@ -28,10 +28,11 @@ use dig_clvm::{
     tree_hash, Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle, TreeHash,
 };
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{Mempool, MempoolConfig, MempoolError, SubmitResult};
+use dig_mempool::{Mempool, MempoolError, SubmitResult};
 use hex_literal::hex;
 
 /// SHA-256 tree hash of `Program::default()` = the nil atom (0x80).
+#[allow(dead_code)]
 const NIL_PUZZLE_HASH: [u8; 32] =
     hex!("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a");
 
@@ -142,6 +143,7 @@ fn aha_bundle_pair(
 }
 
 /// Create a nil-puzzle bundle (no timelock, for checking conflict cache).
+#[allow(dead_code)]
 fn nil_bundle(
     parent_prefix: u8,
     amount: u64,

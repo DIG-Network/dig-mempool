@@ -94,7 +94,7 @@ pub use item::{MempoolItem, SingletonLineageInfo};
 pub use mempool::{Mempool, MempoolSnapshot};
 pub use stats::MempoolStats;
 pub use submit::{ConfirmedBundleInfo, RetryBundles, SubmitResult};
-pub use traits::{MempoolEventHook, RemovalReason};
+pub use traits::{AdmissionPolicy, BlockSelectionStrategy, MempoolEventHook, RemovalReason};
 
 // Re-export key types from dig-clvm for convenience.
 // These are the Chia ecosystem types the mempool operates on.

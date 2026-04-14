@@ -21,8 +21,8 @@ use dig_clvm::{
     tree_hash, Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle, TreeHash,
 };
 use dig_constants::DIG_TESTNET;
+use dig_mempool::Mempool;
 use dig_mempool::{MempoolConfig, MempoolEventHook, MempoolItem, RemovalReason};
-use dig_mempool::{Mempool};
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(

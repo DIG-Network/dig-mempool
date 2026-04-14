@@ -184,8 +184,7 @@ fn vv_req_cpf_006_initial_score_equals_own_fpc() {
 
     let item = mempool.get(&id).unwrap();
     assert_eq!(
-        item.descendant_score,
-        item.fee_per_virtual_cost_scaled,
+        item.descendant_score, item.fee_per_virtual_cost_scaled,
         "initial descendant_score must equal own FPC"
     );
 }

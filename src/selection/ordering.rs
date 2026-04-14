@@ -31,8 +31,11 @@ pub(crate) fn sel_compute_layer(
     let layer = match deps.get(id) {
         None => 0,
         Some(parents) => {
-            let selected_parents: Vec<Bytes32> =
-                parents.iter().filter(|p| selected.contains(p)).copied().collect();
+            let selected_parents: Vec<Bytes32> = parents
+                .iter()
+                .filter(|p| selected.contains(p))
+                .copied()
+                .collect();
             if selected_parents.is_empty() {
                 0
             } else {

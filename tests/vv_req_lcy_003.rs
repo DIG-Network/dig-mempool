@@ -167,7 +167,11 @@ fn vv_req_lcy_003_resubmitted_item_eligible_for_selection() {
 
     // Now eligible for selection.
     let selected = mempool.select_for_block(u64::MAX, 5, 0);
-    assert_eq!(selected.len(), 1, "resubmitted item must appear in selection");
+    assert_eq!(
+        selected.len(),
+        1,
+        "resubmitted item must appear in selection"
+    );
     assert_eq!(selected[0].spend_bundle_id, id);
 }
 
@@ -194,10 +198,16 @@ fn vv_req_lcy_003_failed_resubmit_harmless() {
 
     // Resubmit with EMPTY coin records → will fail (coin not found).
     let result = mempool.submit(promoted, &HashMap::new(), 5, 0);
-    assert!(result.is_err(), "resubmission with missing coin records must fail");
+    assert!(
+        result.is_err(),
+        "resubmission with missing coin records must fail"
+    );
 
     // Existing active item must be unaffected.
-    assert!(mempool.contains(&id_ok), "existing active item must be unaffected");
+    assert!(
+        mempool.contains(&id_ok),
+        "existing active item must be unaffected"
+    );
     assert_eq!(mempool.len(), 1, "pool size must remain 1");
 }
 
@@ -254,8 +264,15 @@ fn vv_req_lcy_003_conflict_retry_workflow() {
 
     // Confirm the winner — removes it from active pool.
     let retry = mempool.on_new_block(1, 100, &[coin.coin_id()], &[]);
-    assert_eq!(retry.conflict_retries.len(), 1, "one conflict retry expected");
-    assert!(!mempool.contains(&winner_id), "winner must be confirmed/removed");
+    assert_eq!(
+        retry.conflict_retries.len(),
+        1,
+        "one conflict retry expected"
+    );
+    assert!(
+        !mempool.contains(&winner_id),
+        "winner must be confirmed/removed"
+    );
 
     // Resubmit the conflict retry with current coin records.
     // The loser now only needs coin_b (coin A is confirmed, no longer in mempool).
@@ -282,7 +299,11 @@ fn vv_req_lcy_003_conflict_retry_workflow() {
 
     // If coin_b-only bundle can be re-tried, it would need a different bundle.
     // The important thing is no panic and pool is consistent.
-    assert_eq!(mempool.conflict_len(), 0, "conflict cache must be empty after drain");
+    assert_eq!(
+        mempool.conflict_len(),
+        0,
+        "conflict cache must be empty after drain"
+    );
 }
 
 /// Full end-to-end workflow: submit → on_new_block → resubmit → select.

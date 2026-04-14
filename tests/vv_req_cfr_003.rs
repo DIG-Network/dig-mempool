@@ -57,10 +57,7 @@ fn alt_bundle(coin: Coin) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
     (bundle, cr)
 }
 
-fn two_coin_bundle(
-    coin_a: Coin,
-    coin_b: Coin,
-) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
+fn two_coin_bundle(coin_a: Coin, coin_b: Coin) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
     let bundle = SpendBundle::new(
         vec![
             CoinSpend::new(coin_a, Program::default(), Program::default()),

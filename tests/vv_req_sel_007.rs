@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use dig_clvm::{Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle};
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{Mempool, MempoolConfig};
+use dig_mempool::Mempool;
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(
@@ -69,7 +69,10 @@ fn vv_req_sel_007_single_item_always_selected() {
 
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
     assert_eq!(selected.len(), 1, "single item must be selected");
-    assert_eq!(selected[0].spend_bundle_id, id, "correct item must be selected");
+    assert_eq!(
+        selected[0].spend_bundle_id, id,
+        "correct item must be selected"
+    );
 }
 
 /// The set with the highest total fees is always selected.
@@ -121,7 +124,11 @@ fn vv_req_sel_007_maximises_total_fees() {
     }
 
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
-    assert_eq!(selected.len(), 6, "all 6 items selected with generous budget");
+    assert_eq!(
+        selected.len(),
+        6,
+        "all 6 items selected with generous budget"
+    );
 
     let total_fees: u64 = selected.iter().map(|i| i.fee).sum();
     let expected_total: u64 = fees.iter().sum();
@@ -149,5 +156,8 @@ fn vv_req_sel_007_deterministic() {
 
     let ids1: Vec<_> = r1.iter().map(|i| i.spend_bundle_id).collect();
     let ids2: Vec<_> = r2.iter().map(|i| i.spend_bundle_id).collect();
-    assert_eq!(ids1, ids2, "best comparator must produce deterministic results");
+    assert_eq!(
+        ids1, ids2,
+        "best comparator must produce deterministic results"
+    );
 }

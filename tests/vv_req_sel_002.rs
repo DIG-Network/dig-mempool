@@ -123,7 +123,11 @@ fn vv_req_sel_002_expired_by_height_excluded() {
 
     // 87 = ASSERT_BEFORE_HEIGHT_ABSOLUTE. Admitted at height=5 (5 < 10).
     let r = submit_with_opcode(&mempool, 0x01, 1000, 87, 10, 5, 0);
-    assert_eq!(r, SubmitResult::Success, "item should be admitted at height=5");
+    assert_eq!(
+        r,
+        SubmitResult::Success,
+        "item should be admitted at height=5"
+    );
     assert_eq!(mempool.len(), 1);
 
     // At height=10, assert_before_height=10 → 10 <= 10 → excluded.
@@ -143,7 +147,11 @@ fn vv_req_sel_002_expired_by_seconds_excluded() {
 
     // 85 = ASSERT_BEFORE_SECONDS_ABSOLUTE. Admitted at timestamp=1000 (1000 < 5000).
     let r = submit_with_opcode(&mempool, 0x01, 1000, 85, 5000, 0, 1000);
-    assert_eq!(r, SubmitResult::Success, "item should be admitted at ts=1000");
+    assert_eq!(
+        r,
+        SubmitResult::Success,
+        "item should be admitted at ts=1000"
+    );
     assert_eq!(mempool.len(), 1);
 
     // At timestamp=5000, assert_before_seconds=5000 → 5000 <= 5000 → excluded.
@@ -167,7 +175,11 @@ fn vv_req_sel_002_no_timelocks_always_included() {
 
     // Select at any height/timestamp → item has no timelocks → always included.
     let selected = mempool.select_for_block(u64::MAX, 999, 999_999);
-    assert_eq!(selected.len(), 1, "unconstrained item must be included at any height/ts");
+    assert_eq!(
+        selected.len(),
+        1,
+        "unconstrained item must be included at any height/ts"
+    );
 }
 
 /// Item with assert_height=5 submitted at height=10 is excluded at select height=4.
@@ -179,7 +191,11 @@ fn vv_req_sel_002_future_timelocked_excluded() {
 
     // 83 = ASSERT_HEIGHT_ABSOLUTE(5). Submitted at height=10 (5 <= 10) → active pool.
     let r = submit_with_opcode(&mempool, 0x01, 1000, 83, 5, 10, 0);
-    assert_eq!(r, SubmitResult::Success, "item with assert_height=5 at h=10 → active");
+    assert_eq!(
+        r,
+        SubmitResult::Success,
+        "item with assert_height=5 at h=10 → active"
+    );
     assert_eq!(mempool.len(), 1);
 
     // At height=4, assert_height=5 > 4 → excluded.

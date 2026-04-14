@@ -23,7 +23,10 @@ fn vv_req_fee_002_default_construction() {
     let stats = m.fee_tracker_stats();
     assert_eq!(stats.bucket_count, 50, "default bucket count must be 50");
     assert_eq!(stats.window, 100, "default window must be 100");
-    assert_eq!(stats.history_len, 0, "history must be empty on construction");
+    assert_eq!(
+        stats.history_len, 0,
+        "history must be empty on construction"
+    );
 }
 
 /// Custom bucket count is honoured.
@@ -34,7 +37,10 @@ fn vv_req_fee_002_custom_bucket_count() {
     let config = MempoolConfig::default().with_fee_estimator_buckets(20);
     let m = Mempool::with_config(DIG_TESTNET, config);
     let stats = m.fee_tracker_stats();
-    assert_eq!(stats.bucket_count, 20, "custom bucket count must be respected");
+    assert_eq!(
+        stats.bucket_count, 20,
+        "custom bucket count must be respected"
+    );
 }
 
 /// Buckets are logarithmically spaced — each is wider than the previous.
@@ -126,7 +132,10 @@ fn vv_req_fee_002_fee_rate_placement() {
     );
     // Exactly one bucket should have a non-trivial count.
     let hot_buckets: usize = post.bucket_totals.iter().filter(|&&t| t > 0.5).count();
-    assert_eq!(hot_buckets, 1, "exactly one bucket must have total_observed > 0");
+    assert_eq!(
+        hot_buckets, 1,
+        "exactly one bucket must have total_observed > 0"
+    );
 }
 
 /// Confirmed tx increments confirmed_in_1 for its bucket (default 1-block wait).
@@ -175,5 +184,8 @@ fn vv_req_fee_002_empty_tracker_state() {
         stats.bucket_confirmed_in_1.iter().all(|&c| c == 0.0),
         "confirmed_in_1 must be 0 for all buckets on fresh tracker"
     );
-    assert_eq!(stats.history_len, 0, "history must be empty on fresh tracker");
+    assert_eq!(
+        stats.history_len, 0,
+        "history must be empty on fresh tracker"
+    );
 }

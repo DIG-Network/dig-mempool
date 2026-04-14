@@ -14,8 +14,8 @@ use std::collections::HashMap;
 
 use dig_clvm::{Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle};
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{FPC_SCALE, MempoolConfig};
 use dig_mempool::Mempool;
+use dig_mempool::{MempoolConfig, FPC_SCALE};
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(

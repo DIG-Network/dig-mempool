@@ -71,7 +71,10 @@ fn vv_req_sel_001_returns_only_active_items() {
     let coin_active = make_coin(0x01, 1000);
     let (bundle_a, cr_a) = nil_bundle(coin_active);
     let id_active = bundle_a.name();
-    assert_eq!(mempool.submit(bundle_a, &cr_a, 0, 0), Ok(SubmitResult::Success));
+    assert_eq!(
+        mempool.submit(bundle_a, &cr_a, 0, 0),
+        Ok(SubmitResult::Success)
+    );
 
     // Submit one item that routes to pending (ASSERT_HEIGHT_ABSOLUTE(100) at height=0).
     let mut a = Allocator::new();
@@ -162,7 +165,10 @@ fn vv_req_sel_001_spend_limit_respected() {
 
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
     let total_spends: usize = selected.iter().map(|i| i.num_spends).sum();
-    assert_eq!(total_spends, 2, "both single-spend items should be selected");
+    assert_eq!(
+        total_spends, 2,
+        "both single-spend items should be selected"
+    );
     assert!(
         total_spends <= 2,
         "total spends ({}) must not exceed max_spends_per_block=2",
@@ -187,7 +193,10 @@ fn vv_req_sel_001_idempotent() {
 
     let ids1: Vec<_> = result1.iter().map(|i| i.spend_bundle_id).collect();
     let ids2: Vec<_> = result2.iter().map(|i| i.spend_bundle_id).collect();
-    assert_eq!(ids1, ids2, "two identical calls must produce identical results");
+    assert_eq!(
+        ids1, ids2,
+        "two identical calls must produce identical results"
+    );
 }
 
 /// No two returned items conflict (share a spent coin).
@@ -205,7 +214,11 @@ fn vv_req_sel_001_output_is_conflict_free() {
     }
 
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
-    assert_eq!(selected.len(), 4, "all non-conflicting items should be selected");
+    assert_eq!(
+        selected.len(),
+        4,
+        "all non-conflicting items should be selected"
+    );
 
     // Verify no shared removals across items.
     let mut all_removals = std::collections::HashSet::new();

@@ -407,3 +407,29 @@ fn vv_req_lcy_001_empty_pool_no_panic() {
     assert!(retry.pending_promotions.is_empty());
     assert!(retry.cascade_evicted.is_empty());
 }
+
+/// on_new_block() calls record_confirmed_block() — fee tracker block history grows.
+///
+/// Proves LCY-001 step 5: "Call record_confirmed_block(height, confirmed_bundles)
+/// to update the fee estimator."
+/// After each on_new_block(), fee_tracker_stats().history_len increments by 1.
+#[test]
+fn vv_req_lcy_001_fee_estimator_updated_on_new_block() {
+    let mempool = Mempool::new(DIG_TESTNET);
+
+    let stats_before = mempool.fee_tracker_stats();
+    assert_eq!(stats_before.history_len, 0, "no blocks yet");
+
+    // Call on_new_block with no coins — should still append a block record.
+    mempool.on_new_block(1, 100, &[], &[]);
+
+    let stats_after = mempool.fee_tracker_stats();
+    assert_eq!(
+        stats_after.history_len, 1,
+        "fee tracker must have 1 block in history after on_new_block()"
+    );
+
+    // Second block.
+    mempool.on_new_block(2, 200, &[], &[]);
+    assert_eq!(mempool.fee_tracker_stats().history_len, 2);
+}
