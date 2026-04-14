@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use dig_clvm::{Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle};
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{Mempool, MempoolConfig};
+use dig_mempool::Mempool;
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(
@@ -121,7 +121,11 @@ fn vv_req_sel_004_whale_and_small_both_selected_with_budget() {
     mempool.submit(b_small, &cr_small, 0, 0).unwrap();
 
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
-    assert_eq!(selected.len(), 2, "both whale and small item should be selected");
+    assert_eq!(
+        selected.len(),
+        2,
+        "both whale and small item should be selected"
+    );
 }
 
 /// Conflicting item skipped by whale strategy.

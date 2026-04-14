@@ -23,8 +23,8 @@ use dig_clvm::{
     tree_hash, Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle, TreeHash,
 };
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{MempoolEventHook, RemovalReason};
 use dig_mempool::Mempool;
+use dig_mempool::{MempoolEventHook, RemovalReason};
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(
@@ -98,7 +98,9 @@ struct RemovalHook {
 
 impl RemovalHook {
     fn new() -> Arc<Self> {
-        Arc::new(Self { events: Mutex::new(Vec::new()) })
+        Arc::new(Self {
+            events: Mutex::new(Vec::new()),
+        })
     }
 }
 
@@ -167,7 +169,10 @@ fn vv_req_lcy_006_partial_eq_works() {
     let r6 = RemovalReason::CascadeEvicted {
         parent_id: Bytes32::from([0x02; 32]),
     };
-    assert_ne!(r4, r6, "CascadeEvicted with different parent_id must not be equal");
+    assert_ne!(
+        r4, r6,
+        "CascadeEvicted with different parent_id must not be equal"
+    );
 }
 
 /// Debug formatting produces a non-empty, readable string.
@@ -184,7 +189,10 @@ fn vv_req_lcy_006_debug_formatting() {
         parent_id: Bytes32::from([0xFF; 32]),
     };
     let s2 = format!("{r2:?}");
-    assert!(s2.contains("CascadeEvicted"), "Debug must name CascadeEvicted");
+    assert!(
+        s2.contains("CascadeEvicted"),
+        "Debug must name CascadeEvicted"
+    );
     assert!(s2.contains("parent_id"), "Debug must include field name");
 }
 
@@ -265,7 +273,11 @@ fn vv_req_lcy_006_cascade_evicted_parent_id_correct() {
 
     // Child bundle (CPFP)
     let child_bundle = SpendBundle::new(
-        vec![CoinSpend::new(output_coin, Program::default(), Program::default())],
+        vec![CoinSpend::new(
+            output_coin,
+            Program::default(),
+            Program::default(),
+        )],
         Signature::default(),
     );
     let child_id = child_bundle.name();
@@ -316,7 +328,11 @@ fn vv_req_lcy_006_cleared_reason_on_clear() {
     assert!(ids.contains(&id2));
 
     for (_, reason) in events.iter() {
-        assert_eq!(*reason, RemovalReason::Cleared, "all reasons must be Cleared");
+        assert_eq!(
+            *reason,
+            RemovalReason::Cleared,
+            "all reasons must be Cleared"
+        );
     }
 }
 

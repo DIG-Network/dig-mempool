@@ -38,7 +38,7 @@ fn vv_req_fee_003_insufficient_data_returns_none() {
         num_spends: 0,
     };
     for h in 0u64..49 {
-        m.record_confirmed_block(h, &[bundle.clone()]);
+        m.record_confirmed_block(h, std::slice::from_ref(&bundle));
     }
 
     assert!(
@@ -63,7 +63,7 @@ fn vv_req_fee_003_sufficient_data_returns_some() {
         num_spends: 0,
     };
     for h in 0u64..50 {
-        m.record_confirmed_block(h, &[bundle.clone()]);
+        m.record_confirmed_block(h, std::slice::from_ref(&bundle));
     }
 
     assert!(
@@ -105,11 +105,14 @@ fn vv_req_fee_003_returns_fee_rate_type() {
         num_spends: 0,
     };
     for h in 0u64..50 {
-        m.record_confirmed_block(h, &[bundle.clone()]);
+        m.record_confirmed_block(h, std::slice::from_ref(&bundle));
     }
 
     let result = m.estimate_fee_rate(1);
-    assert!(result.is_some(), "must return Some for sufficient high-fee data");
+    assert!(
+        result.is_some(),
+        "must return Some for sufficient high-fee data"
+    );
     // mojos_per_clvm_cost field must exist (proves it's the chia-protocol type).
     let fee_rate = result.unwrap();
     let _ = fee_rate.mojos_per_clvm_cost;
@@ -129,7 +132,7 @@ fn vv_req_fee_003_target_0_treated_as_1() {
         num_spends: 0,
     };
     for h in 0u64..50 {
-        m.record_confirmed_block(h, &[bundle.clone()]);
+        m.record_confirmed_block(h, std::slice::from_ref(&bundle));
     }
 
     let r0 = m.estimate_fee_rate(0);
@@ -156,7 +159,7 @@ fn vv_req_fee_003_high_target_returns_result() {
         num_spends: 0,
     };
     for h in 0u64..50 {
-        m.record_confirmed_block(h, &[bundle.clone()]);
+        m.record_confirmed_block(h, std::slice::from_ref(&bundle));
     }
 
     // target=20 uses confirmed_in_10 — should not crash and return Some.
@@ -182,7 +185,7 @@ fn vv_req_fee_003_concurrent_read_safe() {
         num_spends: 0,
     };
     for h in 0u64..50 {
-        m.record_confirmed_block(h, &[bundle.clone()]);
+        m.record_confirmed_block(h, std::slice::from_ref(&bundle));
     }
 
     let m2 = Arc::clone(&m);

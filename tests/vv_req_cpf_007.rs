@@ -284,6 +284,57 @@ fn vv_req_cpf_007_index_cleanup_after_cascade() {
     assert!(mempool.dependents_of(&Bytes32::from([0u8; 32])).is_empty());
 }
 
+/// CPF-007: total_cost and total_fees accumulators decremented after cascade.
+///
+/// Proves CPF-007: "Cost/fee accumulators are decremented for each evicted item."
+/// After parent and child are cascade-evicted, stats().total_cost must reflect
+/// only the remaining item (the replacement).
+#[test]
+fn vv_req_cpf_007_accumulators_decremented_after_cascade() {
+    let mempool = Mempool::new(DIG_TESTNET);
+
+    let (p0, p0_cr, x0) = pass_through_root(0x01, 1000);
+    mempool.submit(p0, &p0_cr, 0, 0).unwrap();
+
+    let (p1, p1_cr, _x1) = link_bundle(x0, 0x02, 500);
+    mempool.submit(p1, &p1_cr, 0, 0).unwrap();
+
+    assert_eq!(mempool.len(), 2);
+    let stats_before = mempool.stats();
+    assert!(
+        stats_before.total_cost > 0,
+        "total_cost must be nonzero before cascade"
+    );
+
+    // RBF P0 → cascade evicts P0 and P1
+    let (pt_puzzle, pt_hash) = make_pass_through_puzzle(1000);
+    let pt_coin = Coin::new(Bytes32::from([0x01; 32]), pt_hash, 1000);
+    let extra = make_coin(0xBB, 20_000_000);
+    let mut cr_r = HashMap::new();
+    cr_r.insert(pt_coin.coin_id(), coin_record(pt_coin));
+    cr_r.insert(extra.coin_id(), coin_record(extra));
+    let replacement = SpendBundle::new(
+        vec![
+            CoinSpend::new(pt_coin, pt_puzzle, Program::default()),
+            CoinSpend::new(extra, Program::default(), Program::default()),
+        ],
+        Signature::default(),
+    );
+    mempool.submit(replacement, &cr_r, 0, 0).unwrap();
+
+    assert_eq!(mempool.len(), 1, "only replacement should remain");
+
+    let stats_after = mempool.stats();
+    assert!(
+        stats_after.total_cost < stats_before.total_cost,
+        "total_cost must decrease after cascade eviction: before={}, after={}",
+        stats_before.total_cost,
+        stats_after.total_cost
+    );
+    // total_spend_count must also decrease (P0 had 1 spend, P1 had 2; replacement has 2)
+    assert_eq!(stats_after.active_count, 1);
+}
+
 /// CPF-007: Multiple children — RBF parent cascade-evicts all children.
 #[test]
 fn vv_req_cpf_007_multiple_children_cascade_evicted() {

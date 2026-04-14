@@ -63,8 +63,15 @@ fn vv_req_pol_009_fresh_singleton_creates_chain() {
     let coin_id = bytes32(0x01);
 
     let item = MempoolItem::new_for_test_singleton(
-        1000, 100_000, 1, launcher_id, coin_id,
-        vec![], vec![], HashSet::new(), 0,
+        1000,
+        100_000,
+        1,
+        launcher_id,
+        coin_id,
+        vec![],
+        vec![],
+        HashSet::new(),
+        0,
     );
     m.force_insert(item);
 
@@ -86,8 +93,15 @@ fn vv_req_pol_009_sequential_update_appends() {
     let coin_a = bytes32(0x0A);
     let created_coin = test_coin(0x0A, 500);
     let item_a = MempoolItem::new_for_test_singleton(
-        500, 100_000, 1, launcher_id, coin_a,
-        vec![], vec![created_coin], HashSet::new(), 0,
+        500,
+        100_000,
+        1,
+        launcher_id,
+        coin_a,
+        vec![],
+        vec![created_coin],
+        HashSet::new(),
+        0,
     );
     m.force_insert(item_a);
 
@@ -96,13 +110,24 @@ fn vv_req_pol_009_sequential_update_appends() {
     let mut deps_b: HashSet<Bytes32> = HashSet::new();
     deps_b.insert(coin_a); // depends on A's bundle_id
     let item_b = MempoolItem::new_for_test_singleton(
-        500, 100_000, 1, launcher_id, coin_b,
-        vec![created_coin.coin_id()], vec![], deps_b, 1,
+        500,
+        100_000,
+        1,
+        launcher_id,
+        coin_b,
+        vec![created_coin.coin_id()],
+        vec![],
+        deps_b,
+        1,
     );
     m.force_insert(item_b);
 
     let chain = m.singleton_chain(&launcher_id);
-    assert_eq!(chain.len(), 2, "chain must have 2 entries after sequential update");
+    assert_eq!(
+        chain.len(),
+        2,
+        "chain must have 2 entries after sequential update"
+    );
     assert_eq!(chain[0], coin_a, "first entry must be coin_a (oldest)");
     assert_eq!(chain[1], coin_b, "second entry must be coin_b (newest)");
 }
@@ -117,8 +142,15 @@ fn vv_req_pol_009_removal_prunes_chain() {
     let coin_id = bytes32(0x01);
 
     let item = MempoolItem::new_for_test_singleton(
-        1000, 100_000, 1, launcher_id, coin_id,
-        vec![], vec![], HashSet::new(), 0,
+        1000,
+        100_000,
+        1,
+        launcher_id,
+        coin_id,
+        vec![],
+        vec![],
+        HashSet::new(),
+        0,
     );
     m.force_insert(item);
     assert_eq!(m.singleton_chain(&launcher_id).len(), 1);
@@ -126,7 +158,10 @@ fn vv_req_pol_009_removal_prunes_chain() {
     // Remove the item — chain should be empty and launcher_id key removed.
     let removed = m.remove(&coin_id);
     assert!(removed, "item must be found and removed");
-    assert!(m.singleton_chain(&launcher_id).is_empty(), "chain must be empty after removal");
+    assert!(
+        m.singleton_chain(&launcher_id).is_empty(),
+        "chain must be empty after removal"
+    );
     assert_eq!(m.singleton_spends_count(), 0, "launcher must be cleaned up");
 }
 
@@ -147,13 +182,23 @@ fn vv_req_pol_009_feature_disabled_no_tracking() {
     // A regular (non-singleton) item — singleton_spends must stay empty.
     let item = MempoolItem::new_for_test(1000, 100_000, 1);
     m.force_insert(item);
-    assert_eq!(m.singleton_spends_count(), 0, "non-singleton item must not add to chain index");
+    assert_eq!(
+        m.singleton_spends_count(),
+        0,
+        "non-singleton item must not add to chain index"
+    );
 
     // Now verify that MempoolConfig::enable_singleton_ff flag exists.
     let config = MempoolConfig::default();
-    assert!(config.enable_singleton_ff, "enable_singleton_ff must default to true");
+    assert!(
+        config.enable_singleton_ff,
+        "enable_singleton_ff must default to true"
+    );
     let config_disabled = MempoolConfig::default().with_singleton_ff(false);
-    assert!(!config_disabled.enable_singleton_ff, "enable_singleton_ff must be disableable");
+    assert!(
+        !config_disabled.enable_singleton_ff,
+        "enable_singleton_ff must be disableable"
+    );
 }
 
 /// Block selection: singleton chain items appear in oldest-first order.
@@ -168,8 +213,15 @@ fn vv_req_pol_009_block_selection_lineage_order() {
     let coin_a = bytes32(0x10);
     let created_coin = test_coin(0x10, 1000);
     let item_a = MempoolItem::new_for_test_singleton(
-        1000, 100_000, 1, launcher_id, coin_a,
-        vec![], vec![created_coin], HashSet::new(), 0,
+        1000,
+        100_000,
+        1,
+        launcher_id,
+        coin_a,
+        vec![],
+        vec![created_coin],
+        HashSet::new(),
+        0,
     );
     m.force_insert(item_a);
 
@@ -177,8 +229,15 @@ fn vv_req_pol_009_block_selection_lineage_order() {
     let mut deps_b: HashSet<Bytes32> = HashSet::new();
     deps_b.insert(coin_a);
     let item_b = MempoolItem::new_for_test_singleton(
-        1000, 100_000, 1, launcher_id, coin_b,
-        vec![created_coin.coin_id()], vec![], deps_b, 1,
+        1000,
+        100_000,
+        1,
+        launcher_id,
+        coin_b,
+        vec![created_coin.coin_id()],
+        vec![],
+        deps_b,
+        1,
     );
     m.force_insert(item_b);
 
@@ -187,8 +246,14 @@ fn vv_req_pol_009_block_selection_lineage_order() {
     let ids: Vec<Bytes32> = selected.iter().map(|i| i.spend_bundle_id).collect();
     let pos_a = ids.iter().position(|id| *id == coin_a);
     let pos_b = ids.iter().position(|id| *id == coin_b);
-    assert!(pos_a.is_some() && pos_b.is_some(), "both items must be selected");
-    assert!(pos_a.unwrap() < pos_b.unwrap(), "A (older) must appear before B (newer)");
+    assert!(
+        pos_a.is_some() && pos_b.is_some(),
+        "both items must be selected"
+    );
+    assert!(
+        pos_a.unwrap() < pos_b.unwrap(),
+        "A (older) must appear before B (newer)"
+    );
 }
 
 /// All-or-nothing: if chain total cost exceeds budget, entire chain excluded.
@@ -203,8 +268,15 @@ fn vv_req_pol_009_all_or_nothing_selection() {
     let coin_a = bytes32(0x20);
     let created_coin = test_coin(0x20, 1000);
     let item_a = MempoolItem::new_for_test_singleton(
-        1000, 600_000, 1, launcher_id, coin_a,
-        vec![], vec![created_coin], HashSet::new(), 0,
+        1000,
+        600_000,
+        1,
+        launcher_id,
+        coin_a,
+        vec![],
+        vec![created_coin],
+        HashSet::new(),
+        0,
     );
     m.force_insert(item_a);
 
@@ -212,8 +284,15 @@ fn vv_req_pol_009_all_or_nothing_selection() {
     let mut deps_b: HashSet<Bytes32> = HashSet::new();
     deps_b.insert(coin_a);
     let item_b = MempoolItem::new_for_test_singleton(
-        1000, 600_000, 1, launcher_id, coin_b,
-        vec![created_coin.coin_id()], vec![], deps_b, 1,
+        1000,
+        600_000,
+        1,
+        launcher_id,
+        coin_b,
+        vec![created_coin.coin_id()],
+        vec![],
+        deps_b,
+        1,
     );
     m.force_insert(item_b);
 
@@ -237,12 +316,26 @@ fn vv_req_pol_009_multiple_launchers_independent() {
     let launcher_y = bytes32(0xF2);
 
     let item_x = MempoolItem::new_for_test_singleton(
-        500, 100_000, 1, launcher_x, bytes32(0x01),
-        vec![], vec![], HashSet::new(), 0,
+        500,
+        100_000,
+        1,
+        launcher_x,
+        bytes32(0x01),
+        vec![],
+        vec![],
+        HashSet::new(),
+        0,
     );
     let item_y = MempoolItem::new_for_test_singleton(
-        500, 100_000, 1, launcher_y, bytes32(0x02),
-        vec![], vec![], HashSet::new(), 0,
+        500,
+        100_000,
+        1,
+        launcher_y,
+        bytes32(0x02),
+        vec![],
+        vec![],
+        HashSet::new(),
+        0,
     );
     m.force_insert(item_x);
     m.force_insert(item_y);
@@ -262,13 +355,24 @@ fn vv_req_pol_009_empty_chain_cleaned_up() {
     let coin_id = bytes32(0x01);
 
     let item = MempoolItem::new_for_test_singleton(
-        1000, 100_000, 1, launcher_id, coin_id,
-        vec![], vec![], HashSet::new(), 0,
+        1000,
+        100_000,
+        1,
+        launcher_id,
+        coin_id,
+        vec![],
+        vec![],
+        HashSet::new(),
+        0,
     );
     m.force_insert(item);
     assert_eq!(m.singleton_spends_count(), 1);
 
     m.remove(&coin_id);
-    assert_eq!(m.singleton_spends_count(), 0, "launcher key must be removed when chain is empty");
+    assert_eq!(
+        m.singleton_spends_count(),
+        0,
+        "launcher key must be removed when chain is empty"
+    );
     assert!(m.singleton_chain(&launcher_id).is_empty());
 }

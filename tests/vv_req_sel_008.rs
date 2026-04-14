@@ -110,11 +110,18 @@ fn vv_req_sel_008_parent_before_child() {
     // Parent: pass-through bundle creating an output coin.
     let (b_parent, cr_parent, output) = pass_through_root(0x01, 1000);
     let id_parent = b_parent.name();
-    assert_eq!(mempool.submit(b_parent, &cr_parent, 0, 0), Ok(SubmitResult::Success));
+    assert_eq!(
+        mempool.submit(b_parent, &cr_parent, 0, 0),
+        Ok(SubmitResult::Success)
+    );
 
     // Child: spends parent's output coin (no on-chain record → mempool dependency).
     let b_child = SpendBundle::new(
-        vec![CoinSpend::new(output, Program::default(), Program::default())],
+        vec![CoinSpend::new(
+            output,
+            Program::default(),
+            Program::default(),
+        )],
         Signature::default(),
     );
     let id_child = b_child.name();
@@ -130,7 +137,11 @@ fn vv_req_sel_008_parent_before_child() {
     );
 
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
-    assert_eq!(selected.len(), 2, "both parent and child should be selected");
+    assert_eq!(
+        selected.len(),
+        2,
+        "both parent and child should be selected"
+    );
 
     let pos_parent = selected.iter().position(|i| i.spend_bundle_id == id_parent);
     let pos_child = selected.iter().position(|i| i.spend_bundle_id == id_child);
@@ -215,7 +226,10 @@ fn vv_req_sel_008_three_level_chain_ordered() {
     );
 
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
-    assert!(selected.len() >= 2, "at least grandparent and parent selected");
+    assert!(
+        selected.len() >= 2,
+        "at least grandparent and parent selected"
+    );
 
     // Find positions.
     let pos_gp = selected.iter().position(|i| i.spend_bundle_id == id_gp);
@@ -252,7 +266,11 @@ fn vv_req_sel_008_deterministic() {
     mempool.submit(b_parent, &cr_parent, 0, 0).unwrap();
 
     let b_child = SpendBundle::new(
-        vec![CoinSpend::new(output, Program::default(), Program::default())],
+        vec![CoinSpend::new(
+            output,
+            Program::default(),
+            Program::default(),
+        )],
         Signature::default(),
     );
     mempool.submit(b_child, &HashMap::new(), 0, 0).unwrap();

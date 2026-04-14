@@ -19,7 +19,8 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{FPC_SCALE, SPEND_PENALTY_COST};
+use crate::config::FPC_SCALE;
+use crate::item::MempoolItem;
 use crate::submit::ConfirmedBundleInfo;
 
 // ── Constants ──
@@ -189,12 +190,8 @@ impl FeeTracker {
             if bundle.cost == 0 {
                 continue;
             }
-            let virtual_cost = (bundle.cost as u128)
-                .saturating_add((bundle.num_spends as u128) * (SPEND_PENALTY_COST as u128));
-            if virtual_cost == 0 {
-                continue;
-            }
-            let fpc_scaled = (bundle.fee as u128).saturating_mul(FPC_SCALE) / virtual_cost;
+            let virtual_cost = MempoolItem::compute_virtual_cost(bundle.cost, bundle.num_spends);
+            let fpc_scaled = MempoolItem::compute_fpc_scaled(bundle.fee, virtual_cost);
             fpc_values.push(fpc_scaled);
 
             let idx = self.find_bucket_idx(fpc_scaled);
@@ -378,7 +375,7 @@ impl FeeTracker {
         let mut lo = 0usize;
         let mut hi = n - 1;
         while lo < hi {
-            let mid = (lo + hi + 1) / 2;
+            let mid = (lo + hi).div_ceil(2);
             if self.buckets[mid].fee_rate_lower <= fpc_scaled {
                 lo = mid;
             } else {

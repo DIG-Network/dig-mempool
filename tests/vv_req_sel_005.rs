@@ -14,7 +14,7 @@ use dig_clvm::{
     tree_hash, Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle, TreeHash,
 };
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{Mempool, MempoolConfig};
+use dig_mempool::Mempool;
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(
@@ -66,7 +66,10 @@ fn clvm_encode_u64(v: u64) -> Vec<u8> {
 /// Build a pass-through puzzle that creates one output coin.
 /// This gives the bundle a slightly larger program, thus higher virtual_cost
 /// than a nil bundle — useful for distinguishing compact vs large items.
-fn pass_through_bundle(parent_byte: u8, amount: u64) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
+fn pass_through_bundle(
+    parent_byte: u8,
+    amount: u64,
+) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
     let mut a = Allocator::new();
     let nil = a.nil();
     let amount_atom = a.new_atom(&clvm_encode_u64(amount)).unwrap();
@@ -123,7 +126,11 @@ fn vv_req_sel_005_many_small_items_selected_over_fewer_large() {
 
     // Submit all items, verify all are selected with generous budget.
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
-    assert_eq!(selected.len(), 3, "all 3 items selected with generous budget");
+    assert_eq!(
+        selected.len(),
+        3,
+        "all 3 items selected with generous budget"
+    );
 
     let total_fees: u64 = selected.iter().map(|i| i.fee).sum();
     assert_eq!(total_fees, 600, "total fees = 3 * 200 = 600");
@@ -143,7 +150,11 @@ fn vv_req_sel_005_all_items_selected_generous_budget() {
     }
 
     let selected = mempool.select_for_block(u64::MAX, 0, 0);
-    assert_eq!(selected.len(), 5, "all 5 items selected with generous budget");
+    assert_eq!(
+        selected.len(),
+        5,
+        "all 5 items selected with generous budget"
+    );
 }
 
 /// FPC is still the primary key — higher FPC wins even at higher cost.

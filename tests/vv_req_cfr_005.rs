@@ -45,10 +45,7 @@ fn nil_bundle(coin: Coin) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
     (bundle, cr)
 }
 
-fn two_coin_bundle(
-    coin_a: Coin,
-    coin_b: Coin,
-) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
+fn two_coin_bundle(coin_a: Coin, coin_b: Coin) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
     let bundle = SpendBundle::new(
         vec![
             CoinSpend::new(coin_a, Program::default(), Program::default()),
@@ -83,7 +80,11 @@ fn vv_req_cfr_005_superset_failure_caches_bundle() {
         "Expected RbfNotSuperset, got: {:?}",
         result
     );
-    assert_eq!(mempool.conflict_len(), 1, "Failed bundle should be in conflict cache");
+    assert_eq!(
+        mempool.conflict_len(),
+        1,
+        "Failed bundle should be in conflict cache"
+    );
 
     let cached = mempool.drain_conflict();
     assert_eq!(cached.len(), 1);
@@ -111,7 +112,11 @@ fn vv_req_cfr_005_fpc_failure_caches_bundle() {
         "Expected RbfFpcNotHigher, got: {:?}",
         result
     );
-    assert_eq!(mempool.conflict_len(), 1, "Bundle should be in conflict cache");
+    assert_eq!(
+        mempool.conflict_len(),
+        1,
+        "Bundle should be in conflict cache"
+    );
 }
 
 /// Failed fee bump → bundle added to conflict cache; error returned.

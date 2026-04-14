@@ -22,8 +22,8 @@ use dig_clvm::{
     tree_hash, Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle, TreeHash,
 };
 use dig_constants::DIG_TESTNET;
+use dig_mempool::Mempool;
 use dig_mempool::{MempoolEventHook, MempoolItem, RemovalReason};
-use dig_mempool::{Mempool};
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(
@@ -143,7 +143,10 @@ impl MempoolEventHook for FullHook {
         self.conflict_cached.lock().unwrap().push(*bundle_id);
     }
     fn on_pending_added(&self, item: &MempoolItem) {
-        self.pending_added.lock().unwrap().push(item.spend_bundle_id);
+        self.pending_added
+            .lock()
+            .unwrap()
+            .push(item.spend_bundle_id);
     }
 }
 
@@ -181,7 +184,10 @@ fn vv_req_lcy_005_on_item_added_fires() {
 
     let added = hook.added.lock().unwrap();
     assert_eq!(added.len(), 1, "on_item_added must be called once");
-    assert_eq!(added[0], bundle_id, "on_item_added must receive correct bundle_id");
+    assert_eq!(
+        added[0], bundle_id,
+        "on_item_added must receive correct bundle_id"
+    );
 }
 
 /// on_item_removed fires when a confirmed block removes an item.
@@ -273,7 +279,11 @@ fn vv_req_lcy_005_on_pending_added_fires() {
     assert!(matches!(result, dig_mempool::SubmitResult::Pending { .. }));
 
     let pending_added = hook.pending_added.lock().unwrap();
-    assert_eq!(pending_added.len(), 1, "on_pending_added must be called once");
+    assert_eq!(
+        pending_added.len(),
+        1,
+        "on_pending_added must be called once"
+    );
     assert_eq!(pending_added[0], bundle_id);
 }
 
@@ -327,7 +337,11 @@ fn vv_req_lcy_005_cascade_evict_fires_removal_hook() {
 
     // Child bundle (CPFP)
     let child_bundle = SpendBundle::new(
-        vec![CoinSpend::new(output_coin, Program::default(), Program::default())],
+        vec![CoinSpend::new(
+            output_coin,
+            Program::default(),
+            Program::default(),
+        )],
         Signature::default(),
     );
     let child_id = child_bundle.name();

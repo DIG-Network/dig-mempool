@@ -42,11 +42,18 @@ fn vv_req_fee_004_single_block_recording() {
     );
 
     let stats = m.fee_tracker_stats();
-    assert_eq!(stats.history_len, 1, "one block recorded → history_len must be 1");
+    assert_eq!(
+        stats.history_len, 1,
+        "one block recorded → history_len must be 1"
+    );
 
     // Exactly one bucket must have total_observed ≈ 1.0.
     let hot: Vec<_> = stats.bucket_totals.iter().filter(|&&t| t > 0.5).collect();
-    assert_eq!(hot.len(), 1, "exactly one bucket must have data after one tx");
+    assert_eq!(
+        hot.len(),
+        1,
+        "exactly one bucket must have data after one tx"
+    );
 }
 
 /// Empty bundles slice still causes decay and appends a BlockFeeData entry.
@@ -183,11 +190,14 @@ fn vv_req_fee_004_manual_seeding_works() {
         num_spends: 0,
     };
     for h in 0u64..50 {
-        m.record_confirmed_block(h, &[bundle.clone()]);
+        m.record_confirmed_block(h, std::slice::from_ref(&bundle));
     }
 
     let stats = m.fee_tracker_stats();
-    assert_eq!(stats.history_len, 50, "manual seeding must accumulate block history");
+    assert_eq!(
+        stats.history_len, 50,
+        "manual seeding must accumulate block history"
+    );
 
     // estimate_fee_rate should now work (>= window/2 = 50 blocks).
     let result = m.estimate_fee_rate(1);
@@ -202,8 +212,6 @@ fn vv_req_fee_004_manual_seeding_works() {
 /// Proves FEE-004: "Called automatically by on_new_block()."
 #[test]
 fn vv_req_fee_004_on_new_block_integration() {
-    use dig_clvm::{Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle};
-
     let m = Mempool::new(DIG_TESTNET);
 
     // Before any blocks, history is empty.

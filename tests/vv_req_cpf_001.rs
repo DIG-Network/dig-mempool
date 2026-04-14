@@ -138,7 +138,9 @@ fn vv_req_cpf_001_entries_removed_on_eviction() {
     let parent_id = bundle.name();
 
     mempool.submit(bundle, &cr, 0, 0).unwrap();
-    assert!(mempool.get_mempool_coin_creator(&output.coin_id()).is_some());
+    assert!(mempool
+        .get_mempool_coin_creator(&output.coin_id())
+        .is_some());
 
     // RBF-replace the parent: cascade-evicts it, cleaning mempool_coins
     let (pt_puzzle, pt_hash) = make_pass_through_puzzle(100);
@@ -149,7 +151,9 @@ fn vv_req_cpf_001_entries_removed_on_eviction() {
     mempool.submit(replacement, &cr2, 0, 0).unwrap();
 
     assert!(
-        mempool.get_mempool_coin_creator(&output.coin_id()).is_none()
+        mempool
+            .get_mempool_coin_creator(&output.coin_id())
+            .is_none()
             || mempool.get_mempool_coin_creator(&output.coin_id()) != Some(parent_id),
         "evicted parent's additions should be cleaned from mempool_coins"
     );
@@ -167,7 +171,10 @@ fn vv_req_cpf_001_get_mempool_coin_record_fields() {
         .get_mempool_coin_record(&output.coin_id())
         .expect("should return synthetic CoinRecord");
 
-    assert_eq!(record.coin, output, "coin field must match the addition coin");
+    assert_eq!(
+        record.coin, output,
+        "coin field must match the addition coin"
+    );
     assert!(!record.spent, "mempool coins are not spent");
     assert!(!record.coinbase, "mempool coins are not coinbase");
 }

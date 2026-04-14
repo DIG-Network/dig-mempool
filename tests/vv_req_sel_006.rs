@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use dig_clvm::{Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle};
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{Mempool, MempoolConfig};
+use dig_mempool::Mempool;
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(
@@ -91,7 +91,11 @@ fn vv_req_sel_006_all_items_selected_generous_budget() {
     }
 
     let selected = mempool.select_for_block(u64::MAX, 10, 0);
-    assert_eq!(selected.len(), 3, "all 3 items selected with generous budget");
+    assert_eq!(
+        selected.len(),
+        3,
+        "all 3 items selected with generous budget"
+    );
 }
 
 /// height_added is correctly recorded per submission height.

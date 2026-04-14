@@ -119,7 +119,13 @@ fn pass_through_bundle(
     parent_prefix: u8,
     amount: u64,
     solution: Program,
-) -> (SpendBundle, HashMap<Bytes32, CoinRecord>, Bytes32, Program, Bytes32) {
+) -> (
+    SpendBundle,
+    HashMap<Bytes32, CoinRecord>,
+    Bytes32,
+    Program,
+    Bytes32,
+) {
     let (puzzle, puzzle_hash) = make_pass_through_puzzle(amount);
     let coin = Coin::new(Bytes32::from([parent_prefix; 32]), puzzle_hash, amount);
     let coin_id = coin.coin_id();
@@ -208,7 +214,9 @@ fn vv_req_pol_008_first_bundle_establishes_bearer() {
     assert_eq!(result, Ok(SubmitResult::Success));
 
     // Retrieve item and verify eligibility
-    let item_a = mempool.get(&a_id).expect("bundle A should be in active pool");
+    let item_a = mempool
+        .get(&a_id)
+        .expect("bundle A should be in active pool");
     assert!(
         item_a.eligible_for_dedup,
         "pass-through bundle should be eligible_for_dedup"
@@ -264,7 +272,11 @@ fn vv_req_pol_008_second_bundle_gets_cost_saving() {
     let b_id = bundle_b.name();
 
     let result_b = mempool.submit(bundle_b, &cr_b, 0, 0);
-    assert_eq!(result_b, Ok(SubmitResult::Success), "bundle B should be admitted");
+    assert_eq!(
+        result_b,
+        Ok(SubmitResult::Success),
+        "bundle B should be admitted"
+    );
 
     let item_b = mempool.get(&b_id).expect("bundle B should be in pool");
 
@@ -300,8 +312,7 @@ fn vv_req_pol_008_second_bundle_gets_cost_saving() {
     // Bundle B has 2 spends, 1 deduped (coin X)
     let expected_cost_saving = item_b.cost / item_b.num_spends as u64;
     assert_eq!(
-        item_b.cost_saving,
-        expected_cost_saving,
+        item_b.cost_saving, expected_cost_saving,
         "cost_saving should equal cost/num_spends for 1 deduped spend"
     );
 }
@@ -321,11 +332,7 @@ fn vv_req_pol_008_non_eligible_not_indexed() {
 
     // Build a nil-puzzle bundle (spends coin without creating output → fee = amount)
     // chia-consensus clears ELIGIBLE_FOR_DEDUP because coin_amount > spend_additions (0)
-    let coin = Coin::new(
-        Bytes32::from([0x01u8; 32]),
-        NIL_PUZZLE_HASH,
-        100,
-    );
+    let coin = Coin::new(Bytes32::from([0x01u8; 32]), NIL_PUZZLE_HASH, 100);
     let coin_id = coin.coin_id();
     let mut cr = HashMap::new();
     cr.insert(
@@ -457,10 +464,12 @@ fn vv_req_pol_008_feature_disabled() {
     );
 
     let item_a = mempool.get(&a_id).unwrap();
-    assert_eq!(item_a.cost_saving, 0, "cost_saving should be 0 when feature disabled");
     assert_eq!(
-        item_a.effective_virtual_cost,
-        item_a.virtual_cost,
+        item_a.cost_saving, 0,
+        "cost_saving should be 0 when feature disabled"
+    );
+    assert_eq!(
+        item_a.effective_virtual_cost, item_a.virtual_cost,
         "effective_virtual_cost should equal virtual_cost when feature disabled"
     );
 
@@ -473,11 +482,18 @@ fn vv_req_pol_008_feature_disabled() {
     mempool.submit(bundle_b, &cr_b, 0, 0).unwrap();
 
     let item_b = mempool.get(&b_id).unwrap();
-    assert_eq!(item_b.cost_saving, 0, "B cost_saving should be 0 when feature disabled");
+    assert_eq!(
+        item_b.cost_saving, 0,
+        "B cost_saving should be 0 when feature disabled"
+    );
     assert_eq!(item_b.effective_virtual_cost, item_b.virtual_cost);
 
     // dedup_index remains empty — no bearers registered
-    assert_eq!(mempool.dedup_index_len(), 0, "dedup_index should remain empty");
+    assert_eq!(
+        mempool.dedup_index_len(),
+        0,
+        "dedup_index should remain empty"
+    );
 
     let solution_hash = sha256_of(Program::default().as_ref());
     assert_eq!(
@@ -522,7 +538,10 @@ fn vv_req_pol_008_different_solutions_not_deduped() {
     // Verify the two solutions have different sha256 hashes (precondition).
     let hash_nil = sha256_of(solution_nil.as_ref());
     let hash_other = sha256_of(solution_other.as_ref());
-    assert_ne!(hash_nil, hash_other, "different solutions must hash differently");
+    assert_ne!(
+        hash_nil, hash_other,
+        "different solutions must hash differently"
+    );
 
     // Bundle A: coin_x with solution_nil
     let (bundle_a, cr_a, coin_x_id, _puzzle, _ph) =
@@ -531,7 +550,11 @@ fn vv_req_pol_008_different_solutions_not_deduped() {
     mempool.submit(bundle_a, &cr_a, 0, 0).unwrap();
 
     // dedup_index: 1 entry — (coin_x.id, hash_nil) → A
-    assert_eq!(mempool.dedup_index_len(), 1, "A is bearer for (coin_x, hash_nil)");
+    assert_eq!(
+        mempool.dedup_index_len(),
+        1,
+        "A is bearer for (coin_x, hash_nil)"
+    );
     assert_eq!(mempool.get_dedup_bearer(&coin_x_id, &hash_nil), Some(a_id));
 
     // Bundle B: same coin_x but solution_other.
@@ -541,7 +564,10 @@ fn vv_req_pol_008_different_solutions_not_deduped() {
     let (bundle_b, cr_b, _cid, _puzzle_b, _ph_b) =
         pass_through_bundle(0x01, 100, solution_other.clone());
     let b_id = bundle_b.name();
-    assert_ne!(b_id, a_id, "different solutions produce different bundle IDs");
+    assert_ne!(
+        b_id, a_id,
+        "different solutions produce different bundle IDs"
+    );
 
     let result = mempool.submit(bundle_b, &cr_b, 0, 0);
     assert!(
@@ -582,8 +608,7 @@ fn vv_req_pol_008_effective_cost_calculation() {
     let mempool = Mempool::new(DIG_TESTNET);
 
     // Submit A: 1-spend (coin X) → bearer
-    let (bundle_a, cr_a, _cid, _puzzle, _ph) =
-        pass_through_bundle(0x01, 100, Program::default());
+    let (bundle_a, cr_a, _cid, _puzzle, _ph) = pass_through_bundle(0x01, 100, Program::default());
     mempool.submit(bundle_a, &cr_a, 0, 0).unwrap();
 
     // Submit B: 2-spend (coin X + coin Y) → 1 deduped spend (X)
@@ -599,16 +624,14 @@ fn vv_req_pol_008_effective_cost_calculation() {
     // cost_saving = cost / num_spends (uniform approximation) * num_deduped (1)
     let expected_cost_saving = item_b.cost / item_b.num_spends as u64;
     assert_eq!(
-        item_b.cost_saving,
-        expected_cost_saving,
+        item_b.cost_saving, expected_cost_saving,
         "cost_saving should equal cost / num_spends for 1 deduped spend"
     );
 
     // effective_virtual_cost = virtual_cost - cost_saving
     let expected_effective_vc = item_b.virtual_cost - item_b.cost_saving;
     assert_eq!(
-        item_b.effective_virtual_cost,
-        expected_effective_vc,
+        item_b.effective_virtual_cost, expected_effective_vc,
         "effective_virtual_cost = virtual_cost - cost_saving"
     );
 

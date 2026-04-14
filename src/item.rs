@@ -344,6 +344,7 @@ impl MempoolItem {
     ///
     /// This is for tests only. Production code should construct items through
     /// the admission pipeline which populates all fields from dig-clvm output.
+    #[doc(hidden)]
     pub fn new_for_test(fee: u64, cost: u64, num_spends: usize) -> Self {
         let virtual_cost = Self::compute_virtual_cost(cost, num_spends);
         let fpc_scaled = Self::compute_fpc_scaled(fee, virtual_cost);
@@ -401,6 +402,8 @@ impl MempoolItem {
     ///
     /// For testing only. Does not perform CLVM validation or puzzle parsing.
     /// Use `Mempool::force_insert()` to inject into the pool.
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new_for_test_singleton(
         fee: u64,
         cost: u64,

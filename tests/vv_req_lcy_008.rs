@@ -23,8 +23,8 @@ use dig_clvm::{
     tree_hash, Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle, TreeHash,
 };
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{MempoolEventHook, RemovalReason};
 use dig_mempool::Mempool;
+use dig_mempool::{MempoolEventHook, RemovalReason};
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(
@@ -116,7 +116,9 @@ struct RemovalHook {
 
 impl RemovalHook {
     fn new() -> Arc<Self> {
-        Arc::new(Self { events: Mutex::new(Vec::new()) })
+        Arc::new(Self {
+            events: Mutex::new(Vec::new()),
+        })
     }
 }
 
@@ -196,7 +198,11 @@ fn vv_req_lcy_008_percent_100_evicts_all() {
 
     mempool.evict_lowest_percent(100, 100);
 
-    assert_eq!(mempool.len(), 0, "evict_lowest_percent(100) must remove all items");
+    assert_eq!(
+        mempool.len(),
+        0,
+        "evict_lowest_percent(100) must remove all items"
+    );
     assert!(mempool.is_empty());
 }
 
@@ -225,7 +231,9 @@ fn vv_req_lcy_008_expiry_protected_skipped() {
     let protected_id = bundle_protected.name();
     let mut cr_protected = HashMap::new();
     cr_protected.insert(coin_protected.coin_id(), coin_record(coin_protected));
-    mempool.submit(bundle_protected, &cr_protected, 0, 0).unwrap();
+    mempool
+        .submit(bundle_protected, &cr_protected, 0, 0)
+        .unwrap();
     assert_eq!(mempool.len(), 2);
 
     // Evict 100% at height 0 — protected item should survive.
@@ -263,7 +271,11 @@ fn vv_req_lcy_008_cascade_evicts_dependents() {
 
     // Child bundle (CPFP).
     let child_bundle = SpendBundle::new(
-        vec![CoinSpend::new(output_coin, Program::default(), Program::default())],
+        vec![CoinSpend::new(
+            output_coin,
+            Program::default(),
+            Program::default(),
+        )],
         Signature::default(),
     );
     let child_id = child_bundle.name();
@@ -273,10 +285,7 @@ fn vv_req_lcy_008_cascade_evicts_dependents() {
     // Evict 100% — parent gets evicted, child should cascade.
     mempool.evict_lowest_percent(100, 100);
 
-    assert!(
-        !mempool.contains(&parent_id),
-        "parent must be evicted"
-    );
+    assert!(!mempool.contains(&parent_id), "parent must be evicted");
     assert!(
         !mempool.contains(&child_id),
         "child must be cascade-evicted"
@@ -337,7 +346,11 @@ fn vv_req_lcy_008_cascade_evicted_hook_fires_with_parent_id() {
 
     // Child bundle (CPFP).
     let child_bundle = SpendBundle::new(
-        vec![CoinSpend::new(output_coin, Program::default(), Program::default())],
+        vec![CoinSpend::new(
+            output_coin,
+            Program::default(),
+            Program::default(),
+        )],
         Signature::default(),
     );
     let child_id = child_bundle.name();

@@ -79,7 +79,11 @@ fn vv_req_lcy_007_round_trip_preserves_state() {
     m.restore(snap);
 
     assert_eq!(m.len(), before_len, "len() must match after restore");
-    assert_eq!(m.stats().total_cost, before_cost, "total_cost must match after restore");
+    assert_eq!(
+        m.stats().total_cost,
+        before_cost,
+        "total_cost must match after restore"
+    );
 }
 
 /// Active items are preserved and retrievable after restore.
@@ -114,7 +118,11 @@ fn vv_req_lcy_007_pending_items_preserved() {
     let pending_before = m.pending_len();
     let snap = m.snapshot();
     m.restore(snap);
-    assert_eq!(m.pending_len(), pending_before, "pending_len must match after restore");
+    assert_eq!(
+        m.pending_len(),
+        pending_before,
+        "pending_len must match after restore"
+    );
 }
 
 /// Conflict cache is preserved after restore.
@@ -148,7 +156,8 @@ fn vv_req_lcy_007_conflict_cache_preserved() {
     m.restore(snap);
 
     assert_eq!(
-        m.conflict_len(), conflict_before,
+        m.conflict_len(),
+        conflict_before,
         "conflict cache count must match after restore"
     );
 }
@@ -161,9 +170,13 @@ fn vv_req_lcy_007_fee_estimator_preserved() {
     let config = MempoolConfig::default().with_fee_estimator_window(20);
     let m = Mempool::with_config(DIG_TESTNET, config);
 
-    let bundle = ConfirmedBundleInfo { cost: 1_000_000, fee: 5_000_000, num_spends: 0 };
+    let bundle = ConfirmedBundleInfo {
+        cost: 1_000_000,
+        fee: 5_000_000,
+        num_spends: 0,
+    };
     for h in 0u64..12 {
-        m.record_confirmed_block(h, &[bundle.clone()]);
+        m.record_confirmed_block(h, std::slice::from_ref(&bundle));
     }
 
     let estimate_before = m.estimate_fee_rate(1);
@@ -198,12 +211,18 @@ fn vv_req_lcy_007_seen_cache_excluded() {
     // The bundle is back in the active pool after restore.
     // Remove it so we can test that the seen-cache doesn't block resubmission.
     // (Note: in this test we just verify the seen cache didn't carry over.)
-    assert!(m.contains(&bundle_id), "bundle must be present after restore");
+    assert!(
+        m.contains(&bundle_id),
+        "bundle must be present after restore"
+    );
     // If we clear and restore again, we can resubmit successfully.
     let snap2 = m.snapshot();
     m.clear();
     m.restore(snap2);
-    assert!(m.contains(&bundle_id), "bundle must still be present in second restore");
+    assert!(
+        m.contains(&bundle_id),
+        "bundle must still be present in second restore"
+    );
 }
 
 /// MempoolSnapshot can be serialized to JSON.
@@ -242,5 +261,8 @@ fn vv_req_lcy_007_indexes_rebuilt() {
     // contains() uses the internal coin_index/items map.
     // active_items() exercises the indexes.
     assert_eq!(m.len(), 1, "must have 1 item after restore");
-    assert!(!m.active_items().is_empty(), "active_items() must work after restore");
+    assert!(
+        !m.active_items().is_empty(),
+        "active_items() must work after restore"
+    );
 }

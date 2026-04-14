@@ -56,10 +56,7 @@ fn alt_bundle(coin: Coin) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
     (bundle, cr)
 }
 
-fn two_coin_bundle(
-    coin_a: Coin,
-    coin_b: Coin,
-) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
+fn two_coin_bundle(coin_a: Coin, coin_b: Coin) -> (SpendBundle, HashMap<Bytes32, CoinRecord>) {
     let bundle = SpendBundle::new(
         vec![
             CoinSpend::new(coin_a, Program::default(), Program::default()),
@@ -143,12 +140,129 @@ fn vv_req_cfr_006_two_conflicts_both_removed() {
     let (bundle_c, cr_c) = three_coin_bundle(coin_x, coin_y, coin_boost);
     let c_id = bundle_c.name();
     let result = mempool.submit(bundle_c, &cr_c, 0, 0);
-    assert_eq!(result, Ok(SubmitResult::Success), "RBF with two conflicts should succeed");
+    assert_eq!(
+        result,
+        Ok(SubmitResult::Success),
+        "RBF with two conflicts should succeed"
+    );
 
     assert!(!mempool.contains(&a_id), "Bundle A should be removed");
     assert!(!mempool.contains(&b_id), "Bundle B should be removed");
     assert!(mempool.contains(&c_id), "Bundle C should be inserted");
     assert_eq!(mempool.len(), 1, "Only the replacement remains");
+}
+
+/// Cascade-evicted dependents of the replaced bundle are NOT added to the conflict cache.
+///
+/// Proves CFR-006 + CPF-007: "cascade-evicted items must NOT be added to the conflict cache."
+/// When B replaces A (via RBF), A's child C is cascade-evicted. C must not appear
+/// in the conflict cache (it was not a direct conflict of B).
+///
+/// Setup: A (pass-through, creates output_coin) → C (CPFP child, spends output_coin).
+///        B replaces A via RBF. C must be cascade-evicted, NOT conflict-cached.
+#[test]
+fn vv_req_cfr_006_cascade_evicted_not_in_conflict_cache() {
+    use dig_clvm::{
+        clvmr::{serde::node_to_bytes, Allocator},
+        tree_hash, TreeHash,
+    };
+
+    let config = MempoolConfig::default().with_min_rbf_fee_bump(0);
+    let mempool = Mempool::with_config(DIG_TESTNET, config);
+
+    // Helper: build pass-through puzzle (spends coin, emits CREATE_COIN for `amount`).
+    fn clvm_encode_u64(v: u64) -> Vec<u8> {
+        if v == 0 {
+            return vec![];
+        }
+        let bytes = v.to_be_bytes();
+        let start = bytes.iter().position(|&b| b != 0).unwrap_or(7);
+        let trimmed = &bytes[start..];
+        if trimmed[0] & 0x80 != 0 {
+            let mut s = Vec::with_capacity(trimmed.len() + 1);
+            s.push(0x00);
+            s.extend_from_slice(trimmed);
+            s
+        } else {
+            trimmed.to_vec()
+        }
+    }
+
+    let make_pass_through = |amount: u64| -> (Program, Bytes32) {
+        let mut a = Allocator::new();
+        let nil = a.nil();
+        let amt = a.new_atom(&clvm_encode_u64(amount)).unwrap();
+        let ph = a.new_atom(NIL_PUZZLE_HASH.as_ref()).unwrap();
+        let op51 = a.new_atom(&[51u8]).unwrap();
+        let tail = a.new_pair(amt, nil).unwrap();
+        let mid = a.new_pair(ph, tail).unwrap();
+        let cond = a.new_pair(op51, mid).unwrap();
+        let cond_list = a.new_pair(cond, nil).unwrap();
+        let q = a.new_atom(&[1u8]).unwrap();
+        let prog = a.new_pair(q, cond_list).unwrap();
+        let bytes = node_to_bytes(&a, prog).unwrap();
+        let puzzle = Program::new(bytes.into());
+        let hash: TreeHash = tree_hash(&a, prog);
+        (puzzle, Bytes32::from(hash))
+    };
+
+    // Parent A: pass-through coin → creates output_coin.
+    let (pt_puzzle, pt_hash) = make_pass_through(100);
+    let parent_coin = Coin::new(Bytes32::from([0x01; 32]), pt_hash, 100);
+    let output_coin = Coin::new(parent_coin.coin_id(), NIL_PUZZLE_HASH, 100);
+    let bundle_a = SpendBundle::new(
+        vec![CoinSpend::new(
+            parent_coin,
+            pt_puzzle.clone(),
+            Program::default(),
+        )],
+        Signature::default(),
+    );
+    let a_id = bundle_a.name();
+    let mut cr_a = std::collections::HashMap::new();
+    cr_a.insert(parent_coin.coin_id(), coin_record(parent_coin));
+    mempool.submit(bundle_a, &cr_a, 0, 0).unwrap();
+
+    // Child C: spends output_coin (a mempool coin created by A).
+    let bundle_c = SpendBundle::new(
+        vec![CoinSpend::new(
+            output_coin,
+            Program::default(),
+            Program::default(),
+        )],
+        Signature::default(),
+    );
+    let c_id = bundle_c.name();
+    mempool
+        .submit(bundle_c, &std::collections::HashMap::new(), 0, 0)
+        .unwrap();
+    assert_eq!(mempool.len(), 2, "A and C both in pool");
+
+    // B replaces A via RBF: spends same parent_coin + extra coin for higher fee.
+    let extra = make_coin(0x0F, 20_000_000);
+    let bundle_b = SpendBundle::new(
+        vec![
+            CoinSpend::new(parent_coin, pt_puzzle, Program::default()),
+            CoinSpend::new(extra, Program::default(), Program::default()),
+        ],
+        Signature::default(),
+    );
+    let mut cr_b = std::collections::HashMap::new();
+    cr_b.insert(parent_coin.coin_id(), coin_record(parent_coin));
+    cr_b.insert(extra.coin_id(), coin_record(extra));
+    let b_result = mempool.submit(bundle_b, &cr_b, 0, 0);
+    assert!(b_result.is_ok(), "RBF B should succeed: {:?}", b_result);
+
+    // After RBF: A removed, C cascade-evicted. Conflict cache must NOT contain C.
+    assert!(!mempool.contains(&a_id), "A was replaced by B");
+    assert!(!mempool.contains(&c_id), "C was cascade-evicted");
+
+    // The conflict cache must be empty — C was cascade-evicted (not a direct conflict).
+    assert_eq!(
+        mempool.conflict_len(),
+        0,
+        "cascade-evicted child C must NOT be in the conflict cache"
+    );
 }
 
 /// After successful RBF, coin_index points to replacement, not the evicted bundle.

@@ -169,26 +169,25 @@ pub(crate) fn sel_greedy(
         // If this item belongs to a singleton chain, collect all unselected
         // successors in the chain (items after this one in lineage order).
         // All must fit in the budget; if not, skip the whole chain.
-        let unselected_successor_ids: Vec<Bytes32> = if let Some(ref lineage) =
-            item.singleton_lineage
-        {
-            if let Some(chain) = pool.singleton_spends.get(&lineage.launcher_id) {
-                let pos = chain.iter().position(|id| *id == item.spend_bundle_id);
-                if let Some(idx) = pos {
-                    chain[idx + 1..]
-                        .iter()
-                        .copied()
-                        .filter(|id| candidates_set.contains(id) && !selected.contains_key(id))
-                        .collect()
+        let unselected_successor_ids: Vec<Bytes32> =
+            if let Some(ref lineage) = item.singleton_lineage {
+                if let Some(chain) = pool.singleton_spends.get(&lineage.launcher_id) {
+                    let pos = chain.iter().position(|id| *id == item.spend_bundle_id);
+                    if let Some(idx) = pos {
+                        chain[idx + 1..]
+                            .iter()
+                            .copied()
+                            .filter(|id| candidates_set.contains(id) && !selected.contains_key(id))
+                            .collect()
+                    } else {
+                        vec![]
+                    }
                 } else {
                     vec![]
                 }
             } else {
                 vec![]
-            }
-        } else {
-            vec![]
-        };
+            };
 
         for succ_id in &unselected_successor_ids {
             if !candidates_set.contains(succ_id) {

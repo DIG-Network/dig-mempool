@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use dig_clvm::{Bytes32, Coin, CoinRecord, CoinSpend, Program, Signature, SpendBundle};
 use dig_constants::DIG_TESTNET;
-use dig_mempool::{Mempool, MempoolConfig};
+use dig_mempool::Mempool;
 use hex_literal::hex;
 
 const NIL_PUZZLE_HASH: Bytes32 = Bytes32::new(hex!(
@@ -151,7 +151,10 @@ fn vv_req_sel_003_deterministic() {
 
     let ids1: Vec<_> = r1.iter().map(|i| i.spend_bundle_id).collect();
     let ids2: Vec<_> = r2.iter().map(|i| i.spend_bundle_id).collect();
-    assert_eq!(ids1, ids2, "two calls with identical state must produce identical results");
+    assert_eq!(
+        ids1, ids2,
+        "two calls with identical state must produce identical results"
+    );
 }
 
 /// Conflict skip: a conflicting item is not selected alongside its conflict.
@@ -179,7 +182,10 @@ fn vv_req_sel_003_active_pool_conflict_free_output() {
     let mut seen = std::collections::HashSet::new();
     for item in &selected {
         for r in &item.removals {
-            assert!(seen.insert(*r), "duplicate removal coin in output — conflict!");
+            assert!(
+                seen.insert(*r),
+                "duplicate removal coin in output — conflict!"
+            );
         }
     }
 }

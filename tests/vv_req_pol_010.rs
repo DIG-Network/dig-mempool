@@ -221,16 +221,8 @@ fn vv_req_pol_010_concurrent_bls_cache_access() {
     let r1 = t1.join().expect("Thread 1 panicked");
     let r2 = t2.join().expect("Thread 2 panicked");
 
-    assert!(
-        r1.is_ok(),
-        "Concurrent submission 1 failed: {:?}",
-        r1
-    );
-    assert!(
-        r2.is_ok(),
-        "Concurrent submission 2 failed: {:?}",
-        r2
-    );
+    assert!(r1.is_ok(), "Concurrent submission 1 failed: {:?}", r1);
+    assert!(r2.is_ok(), "Concurrent submission 2 failed: {:?}", r2);
     assert_eq!(
         mempool.len(),
         2,
@@ -279,7 +271,8 @@ fn vv_req_pol_010_lock_ordering_no_deadlock() {
     }
 
     for h in handles {
-        h.join().expect("Thread panicked — possible deadlock or data race");
+        h.join()
+            .expect("Thread panicked — possible deadlock or data race");
     }
 
     // All 64 bundles should be admitted (no conflicts, distinct coins)
@@ -312,15 +305,18 @@ fn vv_req_pol_010_batch_correct_insertion() {
 
     let results = mempool.submit_batch(bundles, &coin_records, 0, 0);
 
-    assert_eq!(results.len(), 10, "submit_batch should return one result per bundle");
+    assert_eq!(
+        results.len(),
+        10,
+        "submit_batch should return one result per bundle"
+    );
 
     let success_count = results
         .iter()
         .filter(|r| matches!(r, Ok(SubmitResult::Success)))
         .count();
     assert_eq!(
-        success_count,
-        10,
+        success_count, 10,
         "All 10 bundles should succeed; results: {:?}",
         results
     );
