@@ -123,3 +123,49 @@ impl MempoolStats {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::MempoolStats;
+
+    /// `empty()` produces an all-zero baseline snapshot carrying only the
+    /// configured `max_cost`.
+    ///
+    /// This is the baseline used for snapshot comparisons, so every counter and
+    /// total must be zero and the utilization ratio must be exactly 0.0; only
+    /// `max_cost` reflects the passed capacity. Guards against a field being
+    /// added to the struct but left out of the empty constructor.
+    #[test]
+    fn empty_zeroes_every_counter_and_keeps_max_cost() {
+        let max_cost = 8_250_000_000_000u64;
+        let s = MempoolStats::empty(max_cost);
+
+        assert_eq!(s.max_cost, max_cost, "max_cost must reflect the argument");
+
+        // Every count/total/derived metric is zero for an empty pool.
+        assert_eq!(s.active_count, 0);
+        assert_eq!(s.pending_count, 0);
+        assert_eq!(s.pending_cost, 0);
+        assert_eq!(s.conflict_count, 0);
+        assert_eq!(s.total_cost, 0);
+        assert_eq!(s.total_fees, 0);
+        assert_eq!(s.utilization, 0.0);
+        assert_eq!(s.min_fpc_scaled, 0);
+        assert_eq!(s.max_fpc_scaled, 0);
+        assert_eq!(s.items_with_dependencies, 0);
+        assert_eq!(s.max_current_depth, 0);
+        assert_eq!(s.total_spend_count, 0);
+        assert_eq!(s.dedup_eligible_count, 0);
+        assert_eq!(s.singleton_ff_count, 0);
+    }
+
+    /// A different `max_cost` is carried through, and the snapshot is `Clone`
+    /// (callers capture/compare snapshots without holding mempool locks).
+    #[test]
+    fn empty_is_cloneable_and_carries_distinct_max_cost() {
+        let s = MempoolStats::empty(42);
+        let c = s.clone();
+        assert_eq!(c.max_cost, 42);
+        assert_eq!(c.active_count, 0);
+    }
+}
