@@ -52,7 +52,7 @@ jobs:
       # mark it "flaky" (pass-after-retry) instead of failing the build outright; a test that
       # fails all 3 attempts still fails the gate.
       - name: Run tests with coverage (nextest, retries=2, gated at >=80% lines)
-        run: cargo llvm-cov nextest --all-features --workspace --fail-under-lines 80 -- --test-threads=1 --retries 2
+        run: cargo llvm-cov nextest --all-features --workspace --fail-under-lines 80 --test-threads=1 --retries 2
 
       - name: Check documentation
         run: cargo doc --no-deps --all-features
