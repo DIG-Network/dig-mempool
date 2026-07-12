@@ -1,3 +1,8 @@
+# PR/push CI: fmt, clippy, nextest (with automatic flaky-retry) + coverage gate, doc check.
+# Uses cargo-nextest instead of `cargo test` — nextest natively retries a failed test and
+# reports it as "flaky" (pass-after-retry) rather than a hard failure, so a genuinely flaky
+# test doesn't block a PR while still surfacing the flake for triage.
+# Coverage stays gated at >=80% lines via `cargo llvm-cov nextest` (CLAUDE.md §2.3).
 name: CI
 
 on:
@@ -32,17 +37,22 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Check clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      # Runs the full unit + integration suite under instrumentation and fails
-      # the build if line coverage drops below 80%. Tests require a single
-      # thread (shared global state in the chia/clvm validation path).
-      - name: Run tests with coverage (gate ≥80% lines)
-        run: cargo llvm-cov --all-features --workspace --fail-under-lines 80 -- --test-threads=1
+      # Runs the full unit + integration suite under instrumentation and fails the build if
+      # line coverage drops below 80%. Tests require a single thread (shared global state in
+      # the chia/clvm validation path). `--retries 2` lets nextest auto-retry a failed test and
+      # mark it "flaky" (pass-after-retry) instead of failing the build outright; a test that
+      # fails all 3 attempts still fails the gate.
+      - name: Run tests with coverage (nextest, retries=2, gated at >=80% lines)
+        run: cargo llvm-cov nextest --all-features --workspace --fail-under-lines 80 --test-threads=1 --retries 2
 
       - name: Check documentation
         run: cargo doc --no-deps --all-features
