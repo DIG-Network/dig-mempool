@@ -107,8 +107,10 @@ pub enum MempoolError {
     InsufficientFee { required: u64, available: u64 },
 
     /// Fee-per-virtual-cost is too low for the current mempool utilization.
-    /// Returned when utilization >= 80% and the bundle doesn't meet the
-    /// minimum fee threshold from `estimate_min_fee()`.
+    ///
+    /// Reserved for utilization-based admission rejection: `estimate_min_fee()`
+    /// is currently advisory only and admission does not enforce it, so this
+    /// variant is **not currently constructed**.
     /// See: [FEE-001](docs/requirements/domains/fee_estimation/specs/FEE-001.md)
     #[error("fee too low for current mempool utilization")]
     FeeTooLow,
@@ -116,9 +118,12 @@ pub enum MempoolError {
     // ── Conflict / RBF Errors ──
     // See: [CFR-001](docs/requirements/domains/conflict_resolution/specs/CFR-001.md)
     //      through [CFR-005](docs/requirements/domains/conflict_resolution/specs/CFR-005.md)
-    /// A coin spent by this bundle is already spent by an active mempool item,
-    /// and the RBF conditions were not met. The bundle has been added to the
-    /// conflict cache for retry after the conflicting item is confirmed.
+    /// A coin spent by this bundle is already spent by an active mempool item
+    /// and the RBF conditions were not met.
+    ///
+    /// Reserved: unmet-RBF conflicts are currently surfaced through the specific
+    /// `Rbf*` variants below (superset / fee-per-cost / bump), so this catch-all
+    /// is **not currently constructed**.
     /// Chia: `MEMPOOL_CONFLICT` at [mempool_manager.py:816](https://github.com/Chia-Network/chia-blockchain/blob/6e7a4954edccd8ab83fcacf938cfc42ddfcad7f2/chia/full_node/mempool_manager.py#L816).
     #[error("conflicts with existing mempool item {0}")]
     Conflict(Bytes32),
