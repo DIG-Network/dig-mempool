@@ -1,6 +1,6 @@
 [package]
 name = "dig-mempool"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.75.0"
 description = "DIG L2 mempool — fee-prioritized, conflict-aware transaction pool with CPFP support"
@@ -13,8 +13,8 @@ path = "src/lib.rs"
 
 [dependencies]
 # DIG ecosystem
-dig-clvm = "0.1.0"
-dig-constants = "0.1.0"
+dig-clvm = "0.2.2"
+dig-constants = "0.9"
 
 # Error handling
 thiserror = "2"
