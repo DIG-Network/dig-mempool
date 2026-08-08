@@ -1871,7 +1871,7 @@ This appendix documents how `dig-mempool` interacts with `dig-clvm` at the funct
 
 ### B.1 Crate Structure
 
-**Cargo.toml dependencies (dig-clvm v0.1.0):**
+**Cargo.toml dependencies (dig-clvm v0.2.2):**
 - `clvmr = "0.14"` -- CLVM runtime (allocator, cost type, node pointer)
 - `chia-consensus = "0.26"` -- `run_spendbundle`, `validate_clvm_and_signature`, `run_block_generator2`, `solution_generator_backrefs`, flags, `OwnedSpendBundleConditions`
 - `chia-bls = "0.26"` -- `BlsCache`, `Signature`, `PublicKey`, `aggregate_verify`
@@ -1880,7 +1880,7 @@ This appendix documents how `dig-mempool` interacts with `dig-clvm` at the funct
 - `chia-sdk-types = "0.30"` -- `Condition`, `Conditions`
 - `chia-sdk-driver = "0.30"` -- `SpendContext`, `SpendWithConditions`
 - `chia-puzzles = "0.20"` -- Singleton puzzle definitions
-- `dig-constants = "0.1.0"` -- `NetworkConstants`, `DIG_MAINNET`, `DIG_TESTNET`
+- `dig-constants = "0.9"` -- `NetworkConstants`, `DIG_MAINNET`, `DIG_TESTNET`
 
 **Re-exports (dig-clvm/src/lib.rs:1-44):**
 

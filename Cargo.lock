@@ -657,9 +657,9 @@ dependencies = [
 
 [[package]]
 name = "dig-clvm"
-version = "0.1.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "529da4d5118576384b7c3cf9b1e020faa8e1ba406503461d7b55dac8b0d1e2fd"
+checksum = "1bd0d335284c54d0edbb92e4de204bfc1e2fce15914e68b969a8746d9531bee4"
 dependencies = [
  "chia-bls 0.26.0",
  "chia-consensus",
@@ -679,11 +679,10 @@ dependencies = [
 
 [[package]]
 name = "dig-constants"
-version = "0.1.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85a16228a534843f72d269f6e6cb3b6202495195c128f1bad4c7b04b8bf70690"
+checksum = "194aefd3f9ee813b10b43322c0381dbab55ac6d8cb99bc6c3782e53d60405dd5"
 dependencies = [
- "chia-bls 0.26.0",
  "chia-consensus",
  "chia-protocol",
  "hex-literal",
@@ -691,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "dig-mempool"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chia-protocol",
  "chia-sdk-driver",
