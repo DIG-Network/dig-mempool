@@ -144,8 +144,8 @@ src/
 
 | Component | Crate | Version |
 |-----------|-------|---------|
-| CLVM validation | `dig-clvm` | 0.1.0 |
-| Network constants | `dig-constants` | 0.1.0 |
+| CLVM validation | `dig-clvm` | 0.2.2 |
+| Network constants | `dig-constants` | 0.9 |
 | Consensus engine | `chia-consensus` | 0.26 |
 | Protocol types | `chia-protocol` | 0.26 |
 | BLS signatures | `chia-bls` | 0.26 |

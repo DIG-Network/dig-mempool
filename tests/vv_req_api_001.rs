@@ -26,7 +26,7 @@ use dig_mempool::{Mempool, MempoolConfig};
 /// Test: `Mempool::new()` compiles and returns a Mempool.
 ///
 /// Proves the public constructor exists with the correct signature.
-/// Uses `DIG_TESTNET` constants (placeholder genesis challenge).
+/// Uses `DIG_TESTNET` constants (canonical DIG testnet genesis challenge).
 #[test]
 fn vv_req_api_001_new_compiles_and_returns_mempool() {
     let _mempool = Mempool::new(DIG_TESTNET);
